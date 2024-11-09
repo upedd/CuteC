@@ -1,0 +1,115 @@
+#include "Lexer.h"
+
+#include <format>
+
+void Lexer::make_constant() {
+    while (is_digit(peek())) {
+        consume();
+    }
+    if (is_valid_identifier(peek())) {
+        errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line, m_linepos));
+    }
+
+    tokens.emplace_back(Token::Type::CONSTANT, Token::Position(m_line, m_linepos), m_source.substr(m_start, m_pos - m_start));
+}
+
+void Lexer::make_keyword_or_identifier() {
+    while (is_valid_identifier(peek())) {
+        consume();
+    }
+    if (is_digit(peek())) {
+        errors.emplace_back(std::format("Unexpected character in identifer: '{}' at {}:{}", peek(), m_line, m_linepos));
+    }
+
+    std::string lexeme = m_source.substr(m_start, m_pos - m_start);
+    if (lexeme == "return") {
+        make_token(Token::Type::RETURN);
+    } else if (lexeme == "int") {
+        make_token(Token::Type::INT);
+    } else if (lexeme == "void") {
+        make_token(Token::Type::VOID);
+    } else {
+        tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
+    }
+}
+
+void Lexer::lex() {
+    while (true) {
+        skip_whitespace();
+        if (at_end()) {
+            break;
+        }
+        m_start = m_pos;
+        switch (char c = consume(); c) {
+            case '(':
+                make_token(Token::Type::LEFT_PAREN);
+                break;
+            case ')':
+                make_token(Token::Type::RIGHT_PAREN);
+                break;
+            case '{':
+                make_token(Token::Type::LEFT_BRACE);
+                break;
+            case '}':
+                make_token(Token::Type::RIGHT_BRACE);
+                break;
+            case ';':
+                make_token(Token::Type::SEMICOLON);
+                break;
+            default: {
+                if (is_digit(c)) {
+                    make_constant();
+                } else if (is_valid_identifier(c)) {
+                    make_keyword_or_identifier();
+                } else {
+                    errors.emplace_back(std::format("Unexpected character: '{}' at {}:{}", c, m_line, m_linepos));
+                }
+            }
+        }
+    }
+
+}
+
+char Lexer::consume() {
+    if (at_end()) {
+        return '\0';
+    }
+    m_linepos++;
+    return m_source[m_pos++];
+}
+
+char Lexer::peek() {
+    if (at_end()) {
+        return '\0';
+    }
+    return m_source[m_pos];
+}
+
+bool Lexer::at_end() {
+    return m_pos >= m_source.size();
+}
+
+void Lexer::skip_whitespace() {
+    while (is_whitespace(peek())) {
+        if (char c = consume(); c == '\n') {
+            m_line++;
+            m_linepos = 0;
+        }
+    }
+}
+
+bool Lexer::is_whitespace(char c) {
+    return c == ' ' || c == '\n' || c == '\t' || c == '\r';
+}
+
+bool Lexer::is_digit(char c) {
+    return c >= '0' && c <= '9';
+}
+
+bool Lexer::is_valid_identifier(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+void Lexer::make_token(Token::Type type) {
+    tokens.emplace_back(type, Token::Position(m_line, m_linepos));
+}
