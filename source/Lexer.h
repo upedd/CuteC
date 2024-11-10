@@ -31,6 +31,8 @@ private:
 
     char peek();
 
+    bool match(char c);
+
     bool at_end();
 
     void skip_whitespace();

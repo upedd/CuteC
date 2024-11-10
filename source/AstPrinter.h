@@ -53,6 +53,9 @@ public:
                        },
                        [this](const UnaryExpr &expr) {
                            unary_expr(expr);
+                       },
+                       [this](const BinaryExpr &expr) {
+                           binary_expr(expr);
                        }
                    }, expr);
     }
@@ -76,6 +79,47 @@ public:
             println("expr=");
             with_indent([this, &expr] {
                 visit_expr(*expr.expr);
+            });
+        });
+        println(")");
+    }
+
+
+    void binary_expr(const BinaryExpr &expr) {
+        static auto operator_to_string = [](const BinaryExpr::Kind &kind) {
+            switch (kind) {
+                case BinaryExpr::Kind::ADD:
+                    return "add";
+                case BinaryExpr::Kind::SUBTRACT:
+                    return "subtract";
+                case BinaryExpr::Kind::MULTIPLY:
+                    return "multiply";
+                case BinaryExpr::Kind::DIVIDE:
+                    return "divide";
+                case BinaryExpr::Kind::REMAINDER:
+                    return "remainder";
+                case BinaryExpr::Kind::SHIFT_LEFT:
+                    return "shift-left";
+                case BinaryExpr::Kind::SHIFT_RIGHT:
+                    return "shift-right";
+                case BinaryExpr::Kind::BITWISE_AND:
+                    return "bitwise-and";
+                case BinaryExpr::Kind::BITWISE_OR:
+                    return "bitwise-or";
+                case BinaryExpr::Kind::BITWISE_XOR:
+                    return "bitwise-xor";
+            }
+        };
+        println("Binary(");
+        with_indent([this, &expr] {
+            println(std::format("operator={}", operator_to_string(expr.kind)));
+            println("left=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.left);
+            });
+            println("right=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.right);
             });
         });
         println(")");

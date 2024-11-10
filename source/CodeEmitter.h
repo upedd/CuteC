@@ -3,6 +3,7 @@
 #include <format>
 
 #include "AsmTree.h"
+#include "Codegen.h"
 #include "overloaded.h"
 
 // asm tree -> asm file
@@ -54,6 +55,15 @@ public:
                        },
                        [this](const ASM::AllocateStack &ins) {
                            emit_allocate_stack(ins);
+                       },
+                       [this](const ASM::Binary &ins) {
+                           emit_binary(ins);
+                       },
+                       [this](const ASM::Idiv &ins) {
+                           emit_idiv(ins);
+                       },
+                       [this](const ASM::Cdq &ins) {
+                           emit_cdq(ins);
                        }
                    }, instruction);
     }
@@ -89,6 +99,50 @@ public:
         assembly += std::format("    subq ${}, %rsp\n", ins.size);
     }
 
+    void emit_binary(const ASM::Binary &ins) {
+        switch (ins.op) {
+            case ASM::Binary::Operator::ADD:
+                assembly += "    addl ";
+                break;
+            case ASM::Binary::Operator::SUB:
+                assembly += "    subl ";
+                break;
+            case ASM::Binary::Operator::MULT:
+                assembly += "    imull ";
+                break;
+            case ASM::Binary::Operator::SHL:
+                assembly += "    shll ";
+                break;
+            case ASM::Binary::Operator::SHR:
+                assembly += "    sarl ";
+                break;
+            case ASM::Binary::Operator::AND:
+                assembly += "    andl ";
+                break;
+            case ASM::Binary::Operator::XOR:
+                assembly += "    xorl ";
+                break;
+            case ASM::Binary::Operator::OR:
+                assembly += "    orl ";
+                break;
+        }
+
+        emit_operand(ins.left);
+        assembly += ", ";
+        emit_operand(ins.right);
+        assembly += "\n";
+    }
+
+    void emit_idiv(const ASM::Idiv &ins) {
+        assembly += "    idivl ";
+        emit_operand(ins.divisor);
+        assembly += "\n";
+    }
+
+    void emit_cdq(const ASM::Cdq &) {
+        assembly += "    cdq\n";
+    }
+
     void emit_operand(const ASM::Operand &operand) {
         std::visit(overloaded{
                        [this](const ASM::Imm &operand) {
@@ -115,14 +169,28 @@ public:
             case ASM::Reg::Name::AX:
                 assembly += "%eax";
                 break;
+            case ASM::Reg::Name::DX:
+                assembly += "%edx";
+                break;
             case ASM::Reg::Name::R10:
                 assembly += "%r10d";
+                break;
+            case ASM::Reg::Name::R11:
+                assembly += "%r11d";
+                break;
+            case ASM::Reg::Name::CL:
+                assembly += "%cl";
+                break;
+            case ASM::Reg::Name::CX:
+                assembly += "%ecx";
+                break;
         }
     }
 
     void emit_stack(const ASM::Stack &operand) {
         assembly += std::format("{}(%rbp)", operand.offset);
     }
+
 
     std::string assembly;
 

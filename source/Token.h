@@ -25,7 +25,20 @@ public:
         SEMICOLON,
         MINUS,
         MINUS_MINUS,
-        TILDE
+        TILDE,
+        PLUS,
+        ASTERISK,
+        FORWARD_SLASH,
+        PERCENT,
+        AND,
+        AND_AND,
+        BAR,
+        BAR_BAR,
+        LESS,
+        LESS_LESS,
+        GREATER,
+        GREATER_GREATER,
+        CARET
     };
 
     static std::string type_to_string(Type type) {
@@ -56,6 +69,24 @@ public:
                 return "MinusMinus";
             case Type::TILDE:
                 return "Tilde";
+            case Type::AND:
+                return "And";
+            case Type::AND_AND:
+                return "AndAnd";
+            case Type::BAR:
+                return "Bar";
+            case Type::BAR_BAR:
+                return "BarBar";
+            case Type::LESS:
+                return "Less";
+            case Type::LESS_LESS:
+                return "LessLess";
+            case Type::GREATER:
+                return "Greater";
+            case Type::GREATER_GREATER:
+                return "GreaterGreater";
+            case Type::CARET:
+                return "Caret";
         }
     }
 

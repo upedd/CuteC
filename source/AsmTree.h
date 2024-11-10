@@ -6,7 +6,8 @@
 
 namespace ASM {
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack>;
-    using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack>;
+    using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack, struct Binary, struct
+        Idiv, struct Cdq>;
 
     struct Function {
         std::string name;
@@ -24,7 +25,11 @@ namespace ASM {
     struct Reg {
         enum class Name {
             AX,
-            R10
+            DX,
+            R10,
+            R11,
+            CL,
+            CX
         };
 
         Name name;
@@ -58,6 +63,30 @@ namespace ASM {
 
     struct AllocateStack {
         int size;
+    };
+
+    struct Binary {
+        enum class Operator {
+            ADD,
+            SUB,
+            MULT,
+            AND,
+            OR,
+            XOR,
+            SHR,
+            SHL
+        };
+
+        Operator op;
+        Operand left;
+        Operand right;
+    };
+
+    struct Idiv {
+        Operand divisor;
+    };
+
+    struct Cdq {
     };
 }
 

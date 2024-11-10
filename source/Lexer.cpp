@@ -59,15 +59,57 @@ void Lexer::lex() {
                 make_token(Token::Type::SEMICOLON);
                 break;
             case '-':
-                if (peek() == '-') {
-                    consume();
+                if (match('-')) {
                     make_token(Token::Type::MINUS_MINUS);
                 } else {
                     make_token(Token::Type::MINUS);
                 }
                 break;
+            case '&':
+                if (match('&')) {
+                    make_token(Token::Type::AND_AND);
+                } else {
+                    make_token(Token::Type::AND);
+                }
+                break;
+            case '|':
+                if (match('|')) {
+                    make_token(Token::Type::BAR_BAR);
+                } else {
+                    make_token(Token::Type::BAR);
+                }
+                break;
+            case '<':
+                if (match('<')) {
+                    make_token(Token::Type::LESS_LESS);
+                } else {
+                    make_token(Token::Type::LESS);
+                }
+                break;
+            case '>':
+                if (match('>')) {
+                    make_token(Token::Type::GREATER_GREATER);
+                } else {
+                    make_token(Token::Type::GREATER);
+                }
+                break;
             case '~':
                 make_token(Token::Type::TILDE);
+                break;
+            case '+':
+                make_token(Token::Type::PLUS);
+                break;
+            case '/':
+                make_token(Token::Type::FORWARD_SLASH);
+                break;
+            case '*':
+                make_token(Token::Type::ASTERISK);
+                break;
+            case '%':
+                make_token(Token::Type::PERCENT);
+                break;
+            case '^':
+                make_token(Token::Type::CARET);
                 break;
             default: {
                 if (is_digit(c)) {
@@ -95,6 +137,14 @@ char Lexer::peek() {
         return '\0';
     }
     return m_source[m_pos];
+}
+
+bool Lexer::match(char c) {
+    if (peek() == c) {
+        consume();
+        return true;
+    }
+    return false;
 }
 
 bool Lexer::at_end() {

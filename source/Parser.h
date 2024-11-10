@@ -24,7 +24,21 @@ public:
 
     AST::StmtHandle statement();
 
-    AST::ExprHandle expression();
+    enum class Precedence {
+        NONE,
+        BITWISE_OR,
+        BITWISE_XOR,
+        BITWISE_AND,
+        BITWISE_SHIFT,
+        TERM,
+        FACTOR,
+    };
+
+    AST::ExprHandle expression(Precedence min_precedence = Precedence::NONE);
+
+    AST::BinaryExpr::Kind binary_operator();
+
+    AST::ExprHandle factor();
 
     AST::Program program{};
     std::vector<Error> errors{};
@@ -42,5 +56,8 @@ private:
     std::vector<Token> m_tokens;
 };
 
+inline Parser::Precedence operator+(Parser::Precedence lhs, int rhs) {
+    return static_cast<Parser::Precedence>(static_cast<int>(lhs) + rhs);
+}
 
 #endif //PARSER_H

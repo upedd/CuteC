@@ -9,7 +9,7 @@ namespace AST {
     struct Program;
 
     using Stmt = std::variant<struct ReturnStmt>;
-    using Expr = std::variant<struct ConstantExpr, struct UnaryExpr>;
+    using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
 
@@ -38,6 +38,25 @@ namespace AST {
 
         Kind kind;
         ExprHandle expr;
+    };
+
+    struct BinaryExpr {
+        enum class Kind {
+            ADD,
+            SUBTRACT,
+            MULTIPLY,
+            DIVIDE,
+            REMAINDER,
+            SHIFT_LEFT,
+            SHIFT_RIGHT,
+            BITWISE_AND,
+            BITWISE_OR,
+            BITWISE_XOR
+        };
+
+        Kind kind;
+        ExprHandle left;
+        ExprHandle right;
     };
 }
 

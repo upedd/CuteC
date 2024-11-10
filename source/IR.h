@@ -7,7 +7,7 @@
 
 namespace IR {
     using Value = std::variant<struct Constant, struct Variable>;
-    using Instruction = std::variant<struct Return, struct Unary>;
+    using Instruction = std::variant<struct Return, struct Unary, struct Binary>;
 
     struct Function {
         std::string name;
@@ -44,6 +44,26 @@ namespace IR {
 
         Operator op;
         Value source;
+        Value destination;
+    };
+
+    struct Binary {
+        enum class Operator {
+            ADD,
+            SUBTRACT,
+            MULTIPLY,
+            DIVIDE,
+            REMAINDER,
+            SHIFT_LEFT,
+            SHIFT_RIGHT,
+            BITWISE_AND,
+            BITWISE_XOR,
+            BITWISE_OR
+        };
+
+        Operator op;
+        Value left_source;
+        Value right_source;
         Value destination;
     };
 }

@@ -38,8 +38,8 @@ public:
             return {};
         }
 
-        // AstPrinter printer;
-        // printer.program(parser.program);
+        AstPrinter printer;
+        printer.program(parser.program);
         if (only_parse) {
             return "";
         }
