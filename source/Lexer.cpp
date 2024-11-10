@@ -7,10 +7,12 @@ void Lexer::make_constant() {
         consume();
     }
     if (is_valid_identifier(peek())) {
-        errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line, m_linepos));
+        errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line,
+                                        m_linepos));
     }
 
-    tokens.emplace_back(Token::Type::CONSTANT, Token::Position(m_line, m_linepos), m_source.substr(m_start, m_pos - m_start));
+    tokens.emplace_back(Token::Type::CONSTANT, Token::Position(m_line, m_linepos),
+                        m_source.substr(m_start, m_pos - m_start));
 }
 
 void Lexer::make_keyword_or_identifier() {
@@ -56,6 +58,17 @@ void Lexer::lex() {
             case ';':
                 make_token(Token::Type::SEMICOLON);
                 break;
+            case '-':
+                if (peek() == '-') {
+                    consume();
+                    make_token(Token::Type::MINUS_MINUS);
+                } else {
+                    make_token(Token::Type::MINUS);
+                }
+                break;
+            case '~':
+                make_token(Token::Type::TILDE);
+                break;
             default: {
                 if (is_digit(c)) {
                     make_constant();
@@ -67,7 +80,6 @@ void Lexer::lex() {
             }
         }
     }
-
 }
 
 char Lexer::consume() {

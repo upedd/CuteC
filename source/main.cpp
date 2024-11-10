@@ -26,6 +26,8 @@ int main(int argc, char *argv[]) {
             compiler.only_codegen = true;
         } else if (std::string(argv[i]) == "-S") {
             generate_asm = true;
+        } else if (std::string(argv[i]) == "--tacky") {
+            compiler.only_ir = true;
         } else {
             file_path_string = argv[i];
         }
@@ -48,7 +50,7 @@ int main(int argc, char *argv[]) {
         return -1;
     }
 
-    if (compiler.only_lex || compiler.only_parse || compiler.only_codegen) {
+    if (compiler.only_lex || compiler.only_parse || compiler.only_codegen || compiler.only_ir) {
         return 0;
     }
     auto assembly_path = std::filesystem::path(file_path).replace_extension(".s");
@@ -59,7 +61,7 @@ int main(int argc, char *argv[]) {
         return 0;
     }
     auto output_path = std::filesystem::path(file_path).replace_extension("");
-    // temp arch only in macos?
+    // temp arch only in macOS?
     system(std::format("arch -x86_64 gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
 
     std::filesystem::remove(assembly_path);

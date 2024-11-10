@@ -20,4 +20,7 @@ add_executable(CuteC source/main.cpp
         source/Codegen.cpp
         source/Codegen.h
         source/CodeEmitter.cpp
-        source/CodeEmitter.h)
+        source/CodeEmitter.h
+        source/IR.h
+        source/IRGenerator.cpp
+        source/IRGenerator.h)

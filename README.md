@@ -1,5 +1,5 @@
 # Cute C - a toy c compiler
-Cute C (cutsie 😊) is a work-in-progress c compiler
+Cute C (cutesy 😊) is a work-in-progress c compiler
 
 ## Usage
 ```
