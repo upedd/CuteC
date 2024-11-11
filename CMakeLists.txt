@@ -23,4 +23,5 @@ add_executable(CuteC source/main.cpp
         source/CodeEmitter.h
         source/IR.h
         source/IRGenerator.cpp
-        source/IRGenerator.h)
+        source/IRGenerator.h
+        source/IRPrinter.h)

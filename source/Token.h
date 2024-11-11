@@ -38,7 +38,13 @@ public:
         LESS_LESS,
         GREATER,
         GREATER_GREATER,
-        CARET
+        CARET,
+        BANG,
+        EQUAL,
+        EQUAL_EQUAL,
+        BANG_EQUAL,
+        LESS_EQUAL,
+        GREATER_EQUAL
     };
 
     static std::string type_to_string(Type type) {
@@ -87,6 +93,18 @@ public:
                 return "GreaterGreater";
             case Type::CARET:
                 return "Caret";
+            case Type::BANG:
+                return "Bang";
+            case Type::EQUAL:
+                return "Equal";
+            case Type::EQUAL_EQUAL:
+                return "EqualEqual";
+            case Type::BANG_EQUAL:
+                return "BangEqual";
+            case Type::LESS_EQUAL:
+                return "LessEqual";
+            case Type::GREATER_EQUAL:
+                return "GreaterEqual";
         }
     }
 

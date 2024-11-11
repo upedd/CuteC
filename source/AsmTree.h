@@ -5,9 +5,18 @@
 #include <variant>
 
 namespace ASM {
+    enum class ConditionCode {
+        E,
+        NE,
+        G,
+        GE,
+        L,
+        LE
+    };
+
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack, struct Binary, struct
-        Idiv, struct Cdq>;
+        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label>;
 
     struct Function {
         std::string name;
@@ -28,7 +37,6 @@ namespace ASM {
             DX,
             R10,
             R11,
-            CL,
             CX
         };
 
@@ -87,6 +95,29 @@ namespace ASM {
     };
 
     struct Cdq {
+    };
+
+    struct Cmp {
+        Operand left;
+        Operand right;
+    };
+
+    struct Jmp {
+        std::string target;
+    };
+
+    struct JmpCC {
+        ConditionCode cond_code;
+        std::string target;
+    };
+
+    struct SetCC {
+        ConditionCode cond_code;
+        Operand destination;
+    };
+
+    struct Label {
+        std::string name;
     };
 }
 

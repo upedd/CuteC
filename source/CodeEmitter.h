@@ -64,6 +64,21 @@ public:
                        },
                        [this](const ASM::Cdq &ins) {
                            emit_cdq(ins);
+                       },
+                       [this](const ASM::Cmp &ins) {
+                           emit_cmp(ins);
+                       },
+                       [this](const ASM::Jmp &ins) {
+                           emit_jmp(ins);
+                       },
+                       [this](const ASM::JmpCC &ins) {
+                           emit_jmpcc(ins);
+                       },
+                       [this](const ASM::SetCC &ins) {
+                           emit_setcc(ins);
+                       },
+                       [this](const ASM::Label &ins) {
+                           emit_label(ins);
                        }
                    }, instruction);
     }
@@ -126,8 +141,11 @@ public:
                 assembly += "    orl ";
                 break;
         }
-
-        emit_operand(ins.left);
+        if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL) {
+            emit_operand(ins.left, true);
+        } else {
+            emit_operand(ins.left, false);
+        }
         assembly += ", ";
         emit_operand(ins.right);
         assembly += "\n";
@@ -143,13 +161,84 @@ public:
         assembly += "    cdq\n";
     }
 
-    void emit_operand(const ASM::Operand &operand) {
+    void emit_cmp(const ASM::Cmp &ins) {
+        assembly += "    cmpl ";
+        emit_operand(ins.left);
+        assembly += ", ";
+        emit_operand(ins.right);
+        assembly += "\n";
+    }
+
+
+    void emit_condition_code(const ASM::ConditionCode &code) {
+        switch (code) {
+            case ASM::ConditionCode::E:
+                assembly += "e";
+                break;
+            case ASM::ConditionCode::NE:
+                assembly += "ne";
+                break;
+            case ASM::ConditionCode::L:
+                assembly += "l";
+                break;
+            case ASM::ConditionCode::GE:
+                assembly += "ge";
+                break;
+            case ASM::ConditionCode::LE:
+                assembly += "le";
+                break;
+            case ASM::ConditionCode::G:
+                assembly += "g";
+                break;
+        }
+    }
+
+    void emit_jmp(const ASM::Jmp &ins) {
+        assembly += "    jmp ";
+        emit_label(ins.target);
+        assembly += "\n";
+    }
+
+    void emit_jmpcc(const ASM::JmpCC &ins) {
+        assembly += "    j";
+        emit_condition_code(ins.cond_code);
+        assembly += " ";
+        emit_label(ins.target);
+        assembly += "\n";
+    }
+
+    void emit_setcc(const ASM::SetCC &ins) {
+        assembly += "    set";
+        emit_condition_code(ins.cond_code);
+        assembly += " ";
+        emit_operand(ins.destination, true);
+        assembly += "\n";
+    }
+
+    void emit_label(const ASM::Label &ins) {
+        emit_label(ins.name);
+        assembly += ":\n";
+    }
+
+    void emit_label(const std::string &name) {
+#ifdef __APPLE__
+        assembly += "L" + name;
+#else
+        assembly += ".L" + name;
+#endif
+    }
+
+    void emit_operand(const ASM::Operand &operand, bool emit_1byte_registers = false) {
         std::visit(overloaded{
                        [this](const ASM::Imm &operand) {
                            emit_imm(operand);
                        },
-                       [this](const ASM::Reg &operand) {
-                           emit_register(operand);
+                       [this, emit_1byte_registers](const ASM::Reg &operand) {
+                           if (emit_1byte_registers) {
+                               emit_1byte_register(operand);
+                           } else {
+                               emit_4byte_register(operand);
+                           }
                        },
                        [this](const ASM::Stack &operand) {
                            emit_stack(operand);
@@ -164,7 +253,7 @@ public:
         assembly += std::format("${}", operand.value);
     }
 
-    void emit_register(const ASM::Reg &operand) {
+    void emit_4byte_register(const ASM::Reg &operand) {
         switch (operand.name) {
             case ASM::Reg::Name::AX:
                 assembly += "%eax";
@@ -178,11 +267,28 @@ public:
             case ASM::Reg::Name::R11:
                 assembly += "%r11d";
                 break;
-            case ASM::Reg::Name::CL:
-                assembly += "%cl";
-                break;
             case ASM::Reg::Name::CX:
                 assembly += "%ecx";
+                break;
+        }
+    }
+
+    void emit_1byte_register(const ASM::Reg &operand) {
+        switch (operand.name) {
+            case ASM::Reg::Name::AX:
+                assembly += "%al";
+                break;
+            case ASM::Reg::Name::DX:
+                assembly += "%dl";
+                break;
+            case ASM::Reg::Name::R10:
+                assembly += "%r10b";
+                break;
+            case ASM::Reg::Name::R11:
+                assembly += "%r11b";
+                break;
+            case ASM::Reg::Name::CX:
+                assembly += "%cl";
                 break;
         }
     }

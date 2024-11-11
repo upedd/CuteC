@@ -71,6 +71,8 @@ public:
                     return "negate";
                 case UnaryExpr::Kind::COMPLEMENT:
                     return "complement";
+                case UnaryExpr::Kind::LOGICAL_NOT:
+                    return "logical-not";
             }
         };
         println("Unary(");
@@ -108,6 +110,22 @@ public:
                     return "bitwise-or";
                 case BinaryExpr::Kind::BITWISE_XOR:
                     return "bitwise-xor";
+                case BinaryExpr::Kind::LOGICAL_AND:
+                    return "logical-and";
+                case BinaryExpr::Kind::LOGICAL_OR:
+                    return "logical-or";
+                case BinaryExpr::Kind::EQUAL:
+                    return "equal";
+                case BinaryExpr::Kind::NOT_EQUAL:
+                    return "not-equal";
+                case BinaryExpr::Kind::GREATER:
+                    return "greater";
+                case BinaryExpr::Kind::GREATER_EQUAL:
+                    return "greater-equal";
+                case BinaryExpr::Kind::LESS:
+                    return "less";
+                case BinaryExpr::Kind::LESS_EQUAL:
+                    return "less_equal";
             }
         };
         println("Binary(");

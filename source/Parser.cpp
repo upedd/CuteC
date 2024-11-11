@@ -39,6 +39,14 @@ static bool is_binary_operator(Token::Type type) {
         case Token::Type::AND:
         case Token::Type::CARET:
         case Token::Type::BAR:
+        case Token::Type::LESS:
+        case Token::Type::LESS_EQUAL:
+        case Token::Type::GREATER:
+        case Token::Type::GREATER_EQUAL:
+        case Token::Type::BANG_EQUAL:
+        case Token::Type::EQUAL_EQUAL:
+        case Token::Type::AND_AND:
+        case Token::Type::BAR_BAR:
             return true;
         default:
             return false;
@@ -57,12 +65,24 @@ static Parser::Precedence get_precedence(Token::Type type) {
         case Token::Type::LESS_LESS:
         case Token::Type::GREATER_GREATER:
             return Parser::Precedence::BITWISE_SHIFT;
+        case Token::Type::LESS:
+        case Token::Type::LESS_EQUAL:
+        case Token::Type::GREATER:
+        case Token::Type::GREATER_EQUAL:
+            return Parser::Precedence::RELATIONAL;
+        case Token::Type::EQUAL_EQUAL:
+        case Token::Type::BANG_EQUAL:
+            return Parser::Precedence::EQUALITY;
         case Token::Type::AND:
             return Parser::Precedence::BITWISE_AND;
         case Token::Type::CARET:
             return Parser::Precedence::BITWISE_XOR;
         case Token::Type::BAR:
             return Parser::Precedence::BITWISE_OR;
+        case Token::Type::AND_AND:
+            return Parser::Precedence::LOGICAL_AND;
+        case Token::Type::BAR_BAR:
+            return Parser::Precedence::LOGICAL_OR;
     }
 }
 
@@ -102,6 +122,22 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
             return AST::BinaryExpr::Kind::BITWISE_XOR;
         case Token::Type::BAR:
             return AST::BinaryExpr::Kind::BITWISE_OR;
+        case Token::Type::LESS:
+            return AST::BinaryExpr::Kind::LESS;
+        case Token::Type::LESS_EQUAL:
+            return AST::BinaryExpr::Kind::LESS_EQUAL;
+        case Token::Type::GREATER:
+            return AST::BinaryExpr::Kind::GREATER;
+        case Token::Type::GREATER_EQUAL:
+            return AST::BinaryExpr::Kind::GREATER_EQUAL;
+        case Token::Type::BANG_EQUAL:
+            return AST::BinaryExpr::Kind::NOT_EQUAL;
+        case Token::Type::EQUAL_EQUAL:
+            return AST::BinaryExpr::Kind::EQUAL;
+        case Token::Type::BAR_BAR:
+            return AST::BinaryExpr::Kind::LOGICAL_OR;
+        case Token::Type::AND_AND:
+            return AST::BinaryExpr::Kind::LOGICAL_AND;
     }
 }
 
@@ -117,6 +153,10 @@ AST::ExprHandle Parser::factor() {
     if (token.type == Token::Type::TILDE) {
         auto expr = factor();
         return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::COMPLEMENT, std::move(expr)));
+    }
+    if (token.type == Token::Type::BANG) {
+        auto expr = factor();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::LOGICAL_NOT, std::move(expr)));
     }
     if (token.type == Token::Type::LEFT_PAREN) {
         auto expr = expression();

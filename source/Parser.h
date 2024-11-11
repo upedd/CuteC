@@ -26,9 +26,13 @@ public:
 
     enum class Precedence {
         NONE,
+        LOGICAL_OR,
+        LOGICAL_AND,
         BITWISE_OR,
         BITWISE_XOR,
         BITWISE_AND,
+        EQUALITY,
+        RELATIONAL,
         BITWISE_SHIFT,
         TERM,
         FACTOR,

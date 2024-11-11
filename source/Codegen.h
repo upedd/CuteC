@@ -36,6 +36,21 @@ namespace codegen {
                            },
                            [this, &instructions](const IR::Binary &instruction) {
                                convert_binary(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Jump &instruction) {
+                               convert_jump(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::JumpIfZero &instruction) {
+                               convert_jump_if_zero(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::JumpIfNotZero &instruction) {
+                               convert_jump_if_not_zero(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Copy &instruction) {
+                               convert_copy(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Label &instruction) {
+                               convert_label(instruction, instructions);
                            }
                        }, instruction);
         }
@@ -58,6 +73,13 @@ namespace codegen {
         }
 
         void convert_unary(const IR::Unary &instruction, std::vector<ASM::Instruction> &instructions) {
+            if (instruction.op == IR::Unary::Operator::LOGICAL_NOT) {
+                instructions.emplace_back(ASM::Cmp(ASM::Imm(0), convert_value(instruction.source)));
+                instructions.emplace_back(ASM::Mov(ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::E, convert_value(instruction.destination)));
+                return;
+            }
+
             static auto convert_op = [](const IR::Unary::Operator &op) {
                 switch (op) {
                     case IR::Unary::Operator::NEGATE:
@@ -73,6 +95,14 @@ namespace codegen {
         }
 
         void convert_binary(const IR::Binary &instruction, std::vector<ASM::Instruction> &instructions) {
+            if (instruction.op == IR::Binary::Operator::EQUAL || instruction.op == IR::Binary::Operator::GREATER ||
+                instruction.op == IR::Binary::Operator::GREATER_EQUAL || instruction.op == IR::Binary::Operator::LESS ||
+                instruction.op == IR::Binary::Operator::LESS_EQUAL || instruction.op ==
+                IR::Binary::Operator::NOT_EQUAL) {
+                convert_relational(instruction, instructions);
+                return;
+            }
+
             if (instruction.op == IR::Binary::Operator::DIVIDE || instruction.op == IR::Binary::Operator::REMAINDER) {
                 instructions.emplace_back(
                     ASM::Mov(convert_value(instruction.left_source), ASM::Reg(ASM::Reg::Name::AX)));
@@ -114,6 +144,56 @@ namespace codegen {
             }
         }
 
+        void convert_relational(const IR::Binary &instruction, std::vector<ASM::Instruction> &instructions) {
+            static auto convert_op = [](const IR::Binary::Operator &op) {
+                switch (op) {
+                    case IR::Binary::Operator::EQUAL:
+                        return ASM::ConditionCode::E;
+                    case IR::Binary::Operator::GREATER:
+                        return ASM::ConditionCode::G;
+                    case IR::Binary::Operator::GREATER_EQUAL:
+                        return ASM::ConditionCode::GE;
+                    case IR::Binary::Operator::LESS:
+                        return ASM::ConditionCode::L;
+                    case IR::Binary::Operator::LESS_EQUAL:
+                        return ASM::ConditionCode::LE;
+                    case IR::Binary::Operator::NOT_EQUAL:
+                        return ASM::ConditionCode::NE;
+                    default:
+                        std::unreachable();
+                }
+            };
+
+            instructions.emplace_back(ASM::Cmp(convert_value(instruction.right_source),
+                                               convert_value(instruction.left_source)));
+            instructions.emplace_back(ASM::Mov(ASM::Imm(0), convert_value(instruction.destination)));
+            instructions.emplace_back(ASM::SetCC(convert_op(instruction.op), convert_value(instruction.destination)));
+        }
+
+        void convert_jump(const IR::Jump &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Jmp(instruction.target));
+        }
+
+        void convert_jump_if_zero(const IR::JumpIfZero &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Cmp(ASM::Imm(0), convert_value(instruction.condition)));
+            instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::E, instruction.target));
+        }
+
+        void convert_jump_if_not_zero(const IR::JumpIfNotZero &instruction,
+                                      std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Cmp(ASM::Imm(0), convert_value(instruction.condition)));
+            instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::NE, instruction.target));
+        }
+
+        void convert_label(const IR::Label &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Label(instruction.name));
+        }
+
+        void convert_copy(const IR::Copy &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(convert_value(instruction.source),
+                                               convert_value(instruction.destination)));
+        }
+
         ASM::Program asmProgram;
 
     private:
@@ -150,6 +230,13 @@ namespace codegen {
                            },
                            [this](ASM::Idiv &idiv) {
                                replace(idiv.divisor);
+                           },
+                           [this](ASM::Cmp &cmp) {
+                               replace(cmp.left);
+                               replace(cmp.right);
+                           },
+                           [this](ASM::SetCC &mov) {
+                               replace(mov.destination);
                            },
                            [this](auto &) {
                            }
@@ -211,6 +298,9 @@ namespace codegen {
                            },
                            [&output](auto &instruction) {
                                output.emplace_back(instruction);
+                           },
+                           [this, &output](ASM::Cmp &cmp) {
+                               fix_cmp(cmp, output);
                            }
                        }, instruction);
         }
@@ -227,7 +317,7 @@ namespace codegen {
             if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL) &&
                 std::holds_alternative<ASM::Stack>(binary.right)) {
                 output.emplace_back(ASM::Mov{binary.left, ASM::Reg(ASM::Reg::Name::CX)});
-                binary.left = ASM::Reg(ASM::Reg::Name::CL);
+                binary.left = ASM::Reg(ASM::Reg::Name::CX);
                 output.emplace_back(binary);
             } else if (binary.op == ASM::Binary::Operator::MULT && std::holds_alternative<ASM::Stack>(binary.right)) {
                 output.emplace_back(ASM::Mov(binary.right, ASM::Reg(ASM::Reg::Name::R11)));
@@ -250,6 +340,19 @@ namespace codegen {
                 idiv.divisor = ASM::Reg(ASM::Reg::Name::R10);
             }
             output.emplace_back(idiv);
+        }
+
+        void fix_cmp(ASM::Cmp &cmp, std::vector<ASM::Instruction> &output) {
+            if (std::holds_alternative<ASM::Stack>(cmp.left) && std::holds_alternative<ASM::Stack>(cmp.right)) {
+                output.emplace_back(ASM::Mov{cmp.left, ASM::Reg(ASM::Reg::Name::R10)});
+                cmp.left = ASM::Reg(ASM::Reg::Name::R10);
+            }
+
+            if (std::holds_alternative<ASM::Imm>(cmp.right)) {
+                output.emplace_back(ASM::Mov{cmp.right, ASM::Reg(ASM::Reg::Name::R11)});
+                cmp.right = ASM::Reg(ASM::Reg::Name::R11);
+            }
+            output.emplace_back(cmp);
         }
 
     private:

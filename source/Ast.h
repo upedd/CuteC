@@ -33,7 +33,8 @@ namespace AST {
     struct UnaryExpr {
         enum class Kind {
             NEGATE,
-            COMPLEMENT
+            COMPLEMENT,
+            LOGICAL_NOT
         };
 
         Kind kind;
@@ -51,7 +52,15 @@ namespace AST {
             SHIFT_RIGHT,
             BITWISE_AND,
             BITWISE_OR,
-            BITWISE_XOR
+            BITWISE_XOR,
+            LOGICAL_AND,
+            LOGICAL_OR,
+            EQUAL,
+            NOT_EQUAL,
+            LESS,
+            LESS_EQUAL,
+            GREATER,
+            GREATER_EQUAL
         };
 
         Kind kind;

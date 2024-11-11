@@ -82,6 +82,8 @@ void Lexer::lex() {
             case '<':
                 if (match('<')) {
                     make_token(Token::Type::LESS_LESS);
+                } else if (match('=')) {
+                    make_token(Token::Type::LESS_EQUAL);
                 } else {
                     make_token(Token::Type::LESS);
                 }
@@ -89,6 +91,8 @@ void Lexer::lex() {
             case '>':
                 if (match('>')) {
                     make_token(Token::Type::GREATER_GREATER);
+                } else if (match('=')) {
+                    make_token(Token::Type::GREATER_EQUAL);
                 } else {
                     make_token(Token::Type::GREATER);
                 }
@@ -110,6 +114,20 @@ void Lexer::lex() {
                 break;
             case '^':
                 make_token(Token::Type::CARET);
+                break;
+            case '!':
+                if (match('=')) {
+                    make_token(Token::Type::BANG_EQUAL);
+                } else {
+                    make_token(Token::Type::BANG);
+                }
+                break;
+            case '=':
+                if (match('=')) {
+                    make_token(Token::Type::EQUAL_EQUAL);
+                } else {
+                    make_token(Token::Type::EQUAL);
+                }
                 break;
             default: {
                 if (is_digit(c)) {

@@ -58,6 +58,8 @@ public:
                     return IR::Unary::Operator::NEGATE;
                 case AST::UnaryExpr::Kind::COMPLEMENT:
                     return IR::Unary::Operator::COMPLEMENT;
+                case AST::UnaryExpr::Kind::LOGICAL_NOT:
+                    return IR::Unary::Operator::LOGICAL_NOT;
             }
         };
 
@@ -90,8 +92,27 @@ public:
                     return IR::Binary::Operator::BITWISE_OR;
                 case AST::BinaryExpr::Kind::BITWISE_XOR:
                     return IR::Binary::Operator::BITWISE_XOR;
+                case AST::BinaryExpr::Kind::LESS:
+                    return IR::Binary::Operator::LESS;
+                case AST::BinaryExpr::Kind::GREATER:
+                    return IR::Binary::Operator::GREATER;
+                case AST::BinaryExpr::Kind::EQUAL:
+                    return IR::Binary::Operator::EQUAL;
+                case AST::BinaryExpr::Kind::NOT_EQUAL:
+                    return IR::Binary::Operator::NOT_EQUAL;
+                case AST::BinaryExpr::Kind::GREATER_EQUAL:
+                    return IR::Binary::Operator::GREATER_EQUAL;
+                case AST::BinaryExpr::Kind::LESS_EQUAL:
+                    return IR::Binary::Operator::LESS_EQUAL;
             }
         };
+        if (expr.kind == AST::BinaryExpr::Kind::LOGICAL_AND) {
+            return gen_logical_and(expr, instructions);
+        }
+        if (expr.kind == AST::BinaryExpr::Kind::LOGICAL_OR) {
+            return gen_logical_or(expr, instructions);
+        }
+
         auto left = gen_expr(*expr.left, instructions);
         auto right = gen_expr(*expr.right, instructions);
         auto destination = IR::Variable(make_temporary());
@@ -100,14 +121,53 @@ public:
         return destination;
     }
 
+    IR::Value gen_logical_and(const AST::BinaryExpr &expr, std::vector<IR::Instruction> &instructions) {
+        auto false_label = make_label("false");
+        auto end_label = make_label("end");
+
+        auto left = gen_expr(*expr.left, instructions);
+        instructions.emplace_back(IR::JumpIfZero(left, false_label));
+        auto right = gen_expr(*expr.right, instructions);
+        instructions.emplace_back(IR::JumpIfZero(right, false_label));
+        auto result = IR::Variable(make_temporary());
+        instructions.emplace_back(IR::Copy(IR::Constant(1), result));
+        instructions.emplace_back(IR::Jump(end_label));
+        instructions.emplace_back(IR::Label(false_label));
+        instructions.emplace_back(IR::Copy(IR::Constant(0), result));
+        instructions.emplace_back(IR::Label(end_label));
+        return result;
+    }
+
+    IR::Value gen_logical_or(const AST::BinaryExpr &expr, std::vector<IR::Instruction> &instructions) {
+        auto true_label = make_label("true");
+        auto end_label = make_label("end");
+
+        auto left = gen_expr(*expr.left, instructions);
+        instructions.emplace_back(IR::JumpIfNotZero(left, true_label));
+        auto right = gen_expr(*expr.right, instructions);
+        instructions.emplace_back(IR::JumpIfNotZero(right, true_label));
+        auto result = IR::Variable(make_temporary());
+        instructions.emplace_back(IR::Copy(IR::Constant(0), result));
+        instructions.emplace_back(IR::Jump(end_label));
+        instructions.emplace_back(IR::Label(true_label));
+        instructions.emplace_back(IR::Copy(IR::Constant(1), result));
+        instructions.emplace_back(IR::Label(end_label));
+        return result;
+    }
+
     std::string make_temporary() {
-        return "tmp." + (m_tmp_counter++);
+        return "tmp." + std::to_string(m_tmp_counter++);
+    }
+
+    std::string make_label(const std::string &name = "tmp") {
+        return name + "." + std::to_string(m_label_counter++);
     }
 
     IR::Program IRProgram;
 
 private:
     int m_tmp_counter = 0;
+    int m_label_counter = 0;
 
     AST::Program astProgram;
 };
