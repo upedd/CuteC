@@ -8,6 +8,7 @@
 #include "CodeEmitter.h"
 #include "Codegen.h"
 #include "IRGenerator.h"
+#include "IRPrinter.h"
 #include "Lexer.h"
 #include "Parser.h"
 
@@ -46,6 +47,9 @@ public:
 
         IRGenerator generator(std::move(parser.program));
         generator.generate();
+
+        IRPrinter ir_printer(&generator.IRProgram);
+        ir_printer.print();
         if (only_ir) {
             return "";
         }
