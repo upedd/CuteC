@@ -21,7 +21,7 @@ public:
         emit_function(program.function);
 #if __linux__
         // disable executable stack
-        assembly += "   .section .note.GNU-stack,"",@progbits";
+        assembly += ".section .note.GNU-stack,\"\",@progbits\n";
 #endif
     }
 
@@ -30,7 +30,7 @@ public:
 #if __APPLE__
         assembly += "    .global _" + function.name + "\n";
         assembly += "_" + function.name + ":\n";
-#elif
+#else
         assembly += "    .global " + function.name + "\n";
         assembly += function.name + ":\n";
 #endif
