@@ -11,6 +11,7 @@
 #include "IRPrinter.h"
 #include "Lexer.h"
 #include "Parser.h"
+#include "analysis/VariableResolutionPass.h"
 
 
 class Compiler {
@@ -42,6 +43,20 @@ public:
         AstPrinter printer;
         printer.program(parser.program);
         if (only_parse) {
+            return "";
+        }
+
+        VariableResolutionPass variable_resolution_pass(&parser.program);
+        variable_resolution_pass.run();
+        if (!variable_resolution_pass.errors.empty()) {
+            std::cerr << "variable resolution failed!" << '\n';
+            for (const auto &error: variable_resolution_pass.errors) {
+                std::cerr << error.message << '\n';
+            }
+            return {};
+        }
+
+        if (only_analysis) {
             return "";
         }
 
@@ -78,6 +93,7 @@ public:
     bool only_parse = false;
     bool only_codegen = false;
     bool only_ir = false;
+    bool only_analysis = false;
 };
 
 

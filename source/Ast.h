@@ -9,12 +9,14 @@ namespace AST {
     struct Function;
     struct Program;
 
-    using Stmt = std::variant<struct ReturnStmt, struct ExpressionStmt, struct NullStmt>;
-    using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct AssigmentExpr>;
+    using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt>;
+    using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
+        AssigmentExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
+    using DeclarationHandle = std::unique_ptr<struct Declaration>;
 
-    using BlockItem = std::variant<Stmt, struct Declaration>
+    using BlockItem = std::variant<StmtHandle, DeclarationHandle>;
 
     struct Declaration {
         std::string name;
@@ -38,7 +40,8 @@ namespace AST {
         ExprHandle expr;
     };
 
-    struct NullStmt {};
+    struct NullStmt {
+    };
 
     struct ConstantExpr {
         int value;
@@ -48,7 +51,11 @@ namespace AST {
         enum class Kind {
             NEGATE,
             COMPLEMENT,
-            LOGICAL_NOT
+            LOGICAL_NOT,
+            PREFIX_INCREMENT,
+            PREFIX_DECREMENT,
+            POSTFIX_INCREMENT,
+            POSTFIX_DECREMENT
         };
 
         Kind kind;
@@ -87,6 +94,22 @@ namespace AST {
     };
 
     struct AssigmentExpr {
+        // used for compound assigment
+        enum class Operator {
+            NONE,
+            ADD,
+            SUBTRACT,
+            MULTIPLY,
+            DIVIDE,
+            REMAINDER,
+            SHIFT_LEFT,
+            SHIFT_RIGHT,
+            BITWISE_AND,
+            BITWISE_OR,
+            BITWISE_XOR
+        };
+
+        Operator op;
         ExprHandle left;
         ExprHandle right;
     };

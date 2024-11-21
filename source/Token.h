@@ -44,7 +44,19 @@ public:
         EQUAL_EQUAL,
         BANG_EQUAL,
         LESS_EQUAL,
-        GREATER_EQUAL
+        GREATER_EQUAL,
+        END,
+        PLUS_EQUAL,
+        MINUS_EQUAL,
+        ASTERISK_EQUAL,
+        SLASH_EQUAL,
+        PERCENT_EQUAL,
+        AND_EQUAL,
+        BAR_EQUAL,
+        CARET_EQUAL,
+        LESS_LESS_EQUAL,
+        GREATER_GREATER_EQUAL,
+        PLUS_PLUS,
     };
 
     static std::string type_to_string(Type type) {
@@ -105,6 +117,30 @@ public:
                 return "LessEqual";
             case Type::GREATER_EQUAL:
                 return "GreaterEqual";
+            case Type::END:
+                return "End";
+            case Type::PLUS_EQUAL:
+                return "PlusEqual";
+            case Type::MINUS_EQUAL:
+                return "MinusEqual";
+            case Type::ASTERISK_EQUAL:
+                return "AsteriskEqual";
+            case Type::SLASH_EQUAL:
+                return "SlashEqual";
+            case Type::PERCENT_EQUAL:
+                return "PercentEqual";
+            case Type::AND_EQUAL:
+                return "AndEqual";
+            case Type::BAR_EQUAL:
+                return "BarEqual";
+            case Type::CARET_EQUAL:
+                return "CaretEqual";
+            case Type::LESS_LESS_EQUAL:
+                return "LessLessEqual";
+            case Type::GREATER_GREATER_EQUAL:
+                return "GreaterGreaterEqual";
+            case Type::PLUS_PLUS:
+                return "PlusPlus";
         }
     }
 

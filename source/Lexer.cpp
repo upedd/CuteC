@@ -2,6 +2,8 @@
 
 #include <format>
 
+#include "IR.h"
+
 void Lexer::make_constant() {
     while (is_digit(peek())) {
         consume();
@@ -61,6 +63,8 @@ void Lexer::lex() {
             case '-':
                 if (match('-')) {
                     make_token(Token::Type::MINUS_MINUS);
+                } else if (match('=')) {
+                    make_token(Token::Type::MINUS_EQUAL);
                 } else {
                     make_token(Token::Type::MINUS);
                 }
@@ -68,6 +72,8 @@ void Lexer::lex() {
             case '&':
                 if (match('&')) {
                     make_token(Token::Type::AND_AND);
+                } else if (match('=')) {
+                    make_token(Token::Type::AND_EQUAL);
                 } else {
                     make_token(Token::Type::AND);
                 }
@@ -75,13 +81,19 @@ void Lexer::lex() {
             case '|':
                 if (match('|')) {
                     make_token(Token::Type::BAR_BAR);
+                } else if (match('=')) {
+                    make_token(Token::Type::BAR_EQUAL);
                 } else {
                     make_token(Token::Type::BAR);
                 }
                 break;
             case '<':
                 if (match('<')) {
-                    make_token(Token::Type::LESS_LESS);
+                    if (match('=')) {
+                        make_token(Token::Type::LESS_LESS_EQUAL);
+                    } else {
+                        make_token(Token::Type::LESS_LESS);
+                    }
                 } else if (match('=')) {
                     make_token(Token::Type::LESS_EQUAL);
                 } else {
@@ -90,7 +102,11 @@ void Lexer::lex() {
                 break;
             case '>':
                 if (match('>')) {
-                    make_token(Token::Type::GREATER_GREATER);
+                    if (match('=')) {
+                        make_token(Token::Type::GREATER_GREATER_EQUAL);
+                    } else {
+                        make_token(Token::Type::GREATER_GREATER);
+                    }
                 } else if (match('=')) {
                     make_token(Token::Type::GREATER_EQUAL);
                 } else {
@@ -101,19 +117,41 @@ void Lexer::lex() {
                 make_token(Token::Type::TILDE);
                 break;
             case '+':
-                make_token(Token::Type::PLUS);
+                if (match('=')) {
+                    make_token(Token::Type::PLUS_EQUAL);
+                } else if (match('+')) {
+                    make_token(Token::Type::PLUS_PLUS);
+                } else {
+                    make_token(Token::Type::PLUS);
+                }
                 break;
             case '/':
-                make_token(Token::Type::FORWARD_SLASH);
+                if (match('=')) {
+                    make_token(Token::Type::SLASH_EQUAL);
+                } else {
+                    make_token(Token::Type::FORWARD_SLASH);
+                }
                 break;
             case '*':
-                make_token(Token::Type::ASTERISK);
+                if (match('=')) {
+                    make_token(Token::Type::ASTERISK_EQUAL);
+                } else {
+                    make_token(Token::Type::ASTERISK);
+                }
                 break;
             case '%':
-                make_token(Token::Type::PERCENT);
+                if (match('=')) {
+                    make_token(Token::Type::PERCENT_EQUAL);
+                } else {
+                    make_token(Token::Type::PERCENT);
+                }
                 break;
             case '^':
-                make_token(Token::Type::CARET);
+                if (match('=')) {
+                    make_token(Token::Type::CARET_EQUAL);
+                } else {
+                    make_token(Token::Type::CARET);
+                }
                 break;
             case '!':
                 if (match('=')) {
@@ -140,6 +178,8 @@ void Lexer::lex() {
             }
         }
     }
+
+    make_token(Token::Type::END);
 }
 
 char Lexer::consume() {
@@ -187,7 +227,7 @@ bool Lexer::is_digit(char c) {
 }
 
 bool Lexer::is_valid_identifier(char c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9');
 }
 
 void Lexer::make_token(Token::Type type) {

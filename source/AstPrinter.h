@@ -22,10 +22,38 @@ public:
         println("Function(");
         with_indent([this, &function] {
             println(std::format("name=\"{}\",", function.name));
-            println("body=");
+            println("body=[");
             with_indent([this, &function] {
-                visit_stmt(*function.body);
+                for (const auto &item: function.body) {
+                    block_item(item);
+                }
             });
+            println("]");
+        });
+        println(")");
+    }
+
+    void block_item(const BlockItem &item) {
+        std::visit(overloaded{
+                       [this](const StmtHandle &item) {
+                           visit_stmt(*item);
+                       },
+                       [this](const DeclarationHandle &item) {
+                           visit_decl(*item);
+                       }
+                   }, item);
+    }
+
+    void visit_decl(const Declaration &decl) {
+        println("Declaration(");
+        with_indent([this, &decl] {
+            println(std::format("name={},", decl.name));
+            println("value=");
+            if (decl.expr) {
+                visit_expr(*decl.expr);
+            } else {
+                println("null");
+            }
         });
         println(")");
     }
@@ -34,6 +62,12 @@ public:
         std::visit(overloaded{
                        [this](const ReturnStmt &stmt) {
                            return_stmt(stmt);
+                       },
+                       [this](const ExprStmt &stmt) {
+                           visit_expr(*stmt.expr);
+                       },
+                       [this](const NullStmt &stmt) {
+                           println("NullStmt");
                        }
                    }, stmt);
     }
@@ -56,8 +90,29 @@ public:
                        },
                        [this](const BinaryExpr &expr) {
                            binary_expr(expr);
+                       },
+                       [this](const VariableExpr &expr) {
+                           variable_expr(expr);
+                       },
+                       [this](const AssigmentExpr &expr) {
+                           assignment_expr(expr);
                        }
                    }, expr);
+    }
+
+    void variable_expr(const VariableExpr &expr) {
+        println(std::format("VariableExpr(name={})", expr.name));
+    }
+
+    void assignment_expr(const AssigmentExpr &expr) {
+        println("AssigmentExpr(");
+        with_indent([this, &expr] {
+            println("left=");
+            visit_expr(*expr.left);
+            println("right=");
+            visit_expr(*expr.right);
+        });
+        println(")");
     }
 
     void constant_expr(const ConstantExpr &expr) {
@@ -73,6 +128,14 @@ public:
                     return "complement";
                 case UnaryExpr::Kind::LOGICAL_NOT:
                     return "logical-not";
+                case UnaryExpr::Kind::PREFIX_INCREMENT:
+                    return "prefix increment";
+                case UnaryExpr::Kind::PREFIX_DECREMENT:
+                    return "prefix decrement";
+                case UnaryExpr::Kind::POSTFIX_DECREMENT:
+                    return "postfix decrement";
+                case UnaryExpr::Kind::POSTFIX_INCREMENT:
+                    return "postfix increment";
             }
         };
         println("Unary(");

@@ -22,10 +22,15 @@ public:
 
     AST::Function function();
 
+    AST::BlockItem block_item();
+
+    AST::DeclarationHandle declaration();
+
     AST::StmtHandle statement();
 
     enum class Precedence {
         NONE,
+        ASSIGMENT,
         LOGICAL_OR,
         LOGICAL_AND,
         BITWISE_OR,
@@ -36,11 +41,18 @@ public:
         BITWISE_SHIFT,
         TERM,
         FACTOR,
+        POSTFIX
     };
 
     AST::ExprHandle expression(Precedence min_precedence = Precedence::NONE);
 
+    AST::UnaryExpr::Kind postfix_operator();
+
+    AST::AssigmentExpr::Operator compound_operator();
+
     AST::BinaryExpr::Kind binary_operator();
+
+    AST::ExprHandle primary(const Token &token);
 
     AST::ExprHandle factor();
 
@@ -52,7 +64,11 @@ private:
 
     Token consume();
 
+    bool at_end();
+
     Token expect(Token::Type type);
+
+    void go_back();
 
     bool match(Token::Type type);
 

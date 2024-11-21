@@ -28,6 +28,8 @@ int main(int argc, char *argv[]) {
             generate_asm = true;
         } else if (std::string(argv[i]) == "--tacky") {
             compiler.only_ir = true;
+        } else if (std::string(argv[i]) == "--validate") {
+            compiler.only_analysis = true;
         } else {
             file_path_string = argv[i];
         }

@@ -24,4 +24,6 @@ add_executable(CuteC source/main.cpp
         source/IR.h
         source/IRGenerator.cpp
         source/IRGenerator.h
-        source/IRPrinter.h)
+        source/IRPrinter.h
+        source/analysis/VariableResolutionPass.cpp
+        source/analysis/VariableResolutionPass.h)
