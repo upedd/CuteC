@@ -97,6 +97,16 @@ public:
         println("GoToStmt(label=" + stmt.label + ")");
     }
 
+    void compound_stmt(const AST::CompoundStmt &stmt) {
+        println("CompoundStmt(");
+        with_indent([this, &stmt] {
+            for (const auto &item: stmt.body) {
+                block_item(item);
+            }
+        });
+        println(")");
+    }
+
     void visit_stmt(const Stmt &stmt) {
         std::visit(overloaded{
                        [this](const ReturnStmt &stmt) {
@@ -116,6 +126,9 @@ public:
                        },
                        [this](const GoToStmt &stmt) {
                            goto_stmt(stmt);
+                       },
+                       [this](const CompoundStmt &stmt) {
+                           compound_stmt(stmt);
                        }
                    }, stmt);
     }

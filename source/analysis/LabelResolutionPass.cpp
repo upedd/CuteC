@@ -19,13 +19,20 @@ void LabelResolutionPass::resolve_stmt(const AST::Stmt &stmt) {
                            resolve_stmt(*stmt.else_stmt);
                        }
                    },
+                   [this](const AST::CompoundStmt &stmt) {
+                       resolve_block(stmt.body);
+                   },
                    [](const auto &) {
                    }
                }, stmt);
 }
 
 void LabelResolutionPass::resolve_function(const AST::Function &function) {
-    for (const auto &item: function.body) {
+    resolve_block(function.body);
+}
+
+void LabelResolutionPass::resolve_block(const std::vector<AST::BlockItem> &block) {
+    for (const auto &item: block) {
         if (std::holds_alternative<AST::StmtHandle>(item)) {
             resolve_stmt(*std::get<AST::StmtHandle>(item));
         }

@@ -15,12 +15,7 @@ AST::Function Parser::function() {
     expect(Token::Type::VOID);
     expect(Token::Type::RIGHT_PAREN);
     expect(Token::Type::LEFT_BRACE);
-    std::vector<AST::BlockItem> body;
-    while (!at_end() && peek().type != Token::Type::RIGHT_BRACE) {
-        body.emplace_back(block_item());
-    }
-    expect(Token::Type::RIGHT_BRACE);
-    return AST::Function(name.lexeme, std::move(body));
+    return AST::Function(name.lexeme, block());
 }
 
 
@@ -53,10 +48,23 @@ AST::StmtHandle Parser::goto_stmt() {
     return std::make_unique<AST::Stmt>(AST::GoToStmt(label.lexeme));
 }
 
+std::vector<AST::BlockItem> Parser::block() {
+    std::vector<AST::BlockItem> items;
+    while (!at_end() && peek().type != Token::Type::RIGHT_BRACE) {
+        items.emplace_back(block_item());
+    }
+    expect(Token::Type::RIGHT_BRACE);
+    return items;
+}
+
 AST::StmtHandle Parser::statement() {
     if (peek().type == Token::Type::IDENTIFIER && peek(1).type == Token::Type::COLON) {
         auto identifier = consume();
         return labeled_stmt(identifier);
+    }
+
+    if (match(Token::Type::LEFT_BRACE)) {
+        return std::make_unique<AST::Stmt>(AST::CompoundStmt(block()));
     }
 
     if (match(Token::Type::GOTO)) {

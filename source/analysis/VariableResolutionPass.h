@@ -1,5 +1,6 @@
 #ifndef VARIABLERESOLUTIONPASS_H
 #define VARIABLERESOLUTIONPASS_H
+#include <optional>
 #include <unordered_map>
 
 #include "../Ast.h"
@@ -16,6 +17,8 @@ public:
     }
 
     void resolve_function(AST::Function &function);
+
+    void resolve_block(std::vector<AST::BlockItem> &block);
 
     void resolve_program(AST::Program &program);
 
@@ -39,10 +42,16 @@ public:
 
     void resolve_variable(AST::VariableExpr &expr);
 
+    std::string declare(const std::string &name);
+
+    std::optional<std::string> resolve(const std::string &name);
+
+    void resolve_compound(AST::CompoundStmt &stmt);
+
     std::vector<Error> errors;
 
 private:
-    std::unordered_map<std::string, std::string> variables;
+    std::vector<std::unordered_map<std::string, std::string> > variables;
     AST::Program *program;
     int cnt = 0;
 };

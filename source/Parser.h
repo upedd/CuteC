@@ -30,6 +30,8 @@ public:
 
     AST::StmtHandle goto_stmt();
 
+    std::vector<AST::BlockItem> block();
+
     AST::StmtHandle statement();
 
     AST::StmtHandle if_stmt();

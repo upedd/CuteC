@@ -10,7 +10,7 @@ namespace AST {
     struct Program;
 
     using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt, struct IfStmt, struct LabeledStmt,
-        struct GoToStmt>;
+        struct GoToStmt, struct CompoundStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
         AssigmentExpr, struct ConditionalExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
@@ -134,6 +134,10 @@ namespace AST {
 
     struct GoToStmt {
         std::string label;
+    };
+
+    struct CompoundStmt {
+        std::vector<BlockItem> body;
     };
 }
 

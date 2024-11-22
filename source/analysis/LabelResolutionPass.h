@@ -24,6 +24,8 @@ public:
 
  void resolve_function(const AST::Function &function);
 
+ void resolve_block(const std::vector<AST::BlockItem> &block);
+
  void resolve_program(const AST::Program &program);
 
  void run();

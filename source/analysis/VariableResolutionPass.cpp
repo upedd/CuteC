@@ -3,9 +3,16 @@
 #include <format>
 
 #include "../overloaded.h"
+#include <ranges>
 
 void VariableResolutionPass::resolve_function(AST::Function &function) {
-    for (auto &block_item: function.body) {
+    variables.emplace_back();
+    resolve_block(function.body);
+    variables.pop_back();
+}
+
+void VariableResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
+    for (auto &item: block) {
         std::visit(overloaded{
                        [this](AST::DeclarationHandle &item) {
                            resolve_declaration(*item);
@@ -13,7 +20,7 @@ void VariableResolutionPass::resolve_function(AST::Function &function) {
                        [this](AST::StmtHandle &item) {
                            resolve_statement(*item);
                        }
-                   }, block_item);
+                   }, item);
     }
 }
 
@@ -30,16 +37,10 @@ std::string VariableResolutionPass::make_temporary(const std::string &original_n
 }
 
 void VariableResolutionPass::resolve_declaration(AST::Declaration &decl) {
-    if (variables.contains(decl.name)) {
-        errors.emplace_back("Duplicate variable declaration: \"" + decl.name + "\"!");
-        return; // should fail?
-    }
-    std::string unique_name = make_temporary(decl.name);
-    variables.emplace(decl.name, unique_name);
+    decl.name = declare(decl.name);
     if (decl.expr) {
         resolve_expression(*decl.expr);
     }
-    decl.name = unique_name;
 }
 
 void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
@@ -59,6 +60,9 @@ void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
                    },
                    [this](AST::LabeledStmt &stmt) {
                        resolve_statement(*stmt.stmt);
+                   },
+                   [this](AST::CompoundStmt &stmt) {
+                       resolve_compound(stmt);
                    },
                    [](auto &) {
                    }
@@ -118,9 +122,32 @@ void VariableResolutionPass::resolve_assigment(AST::AssigmentExpr &expr) {
 }
 
 void VariableResolutionPass::resolve_variable(AST::VariableExpr &expr) {
-    if (!variables.contains(expr.name)) {
+    if (auto resolved = resolve(expr.name); !resolved) {
         errors.emplace_back("Undeclared variable: \"" + expr.name + "\"!");
     } else {
-        expr.name = variables[expr.name];
+        expr.name = *resolved;
     }
+}
+
+std::string VariableResolutionPass::declare(const std::string &name) {
+    if (variables.back().contains(name)) {
+        errors.emplace_back("Variable already declared in current scope: \"" + name + "\"!");
+        // should fail?
+    }
+    return variables.back()[name] = make_temporary(name);
+}
+
+std::optional<std::string> VariableResolutionPass::resolve(const std::string &name) {
+    for (auto &scope: variables | std::views::reverse) {
+        if (scope.contains(name)) {
+            return scope[name];
+        }
+    }
+    return {};
+}
+
+void VariableResolutionPass::resolve_compound(AST::CompoundStmt &stmt) {
+    variables.emplace_back();
+    resolve_block(stmt.body);
+    variables.pop_back();
 }

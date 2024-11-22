@@ -80,6 +80,15 @@ public:
         return instructions;;
     }
 
+    std::vector<IR::Instruction> gen_compound(const AST::CompoundStmt &stmt) {
+        std::vector<IR::Instruction> instructions;
+        for (const auto &item: stmt.body) {
+            auto item_instructions = gen_block_item(item);
+            instructions.insert(instructions.end(), item_instructions.begin(), item_instructions.end());
+        }
+        return instructions;
+    }
+
     std::vector<IR::Instruction> gen_stmt(const AST::Stmt &stmt) {
         return std::visit(overloaded{
                               [this](const AST::ReturnStmt &stmt) {
@@ -98,6 +107,9 @@ public:
                               },
                               [this](const AST::GoToStmt &stmt) {
                                   return gen_goto(stmt);
+                              },
+                              [this](const AST::CompoundStmt &stmt) {
+                                  return gen_compound(stmt);
                               },
                               [this](const auto &) {
                                   return std::vector<IR::Instruction>();
