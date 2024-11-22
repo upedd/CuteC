@@ -48,6 +48,38 @@ public:
         return instructions;
     }
 
+    std::vector<IR::Instruction> gen_if_stmt(const AST::IfStmt &stmt) {
+        std::vector<IR::Instruction> instructions;
+        auto else_label = make_label("else");
+        auto end_label = make_label("end");
+        auto result = gen_expr(*stmt.condition, instructions);
+        instructions.emplace_back(IR::JumpIfZero(result, else_label));
+        auto then_instructions = gen_stmt(*stmt.then_stmt);
+        instructions.insert(instructions.end(), then_instructions.begin(), then_instructions.end());
+        instructions.emplace_back(IR::Jump(end_label));
+        instructions.emplace_back(IR::Label(else_label));
+        if (stmt.else_stmt) {
+            auto else_instructions = gen_stmt(*stmt.else_stmt);
+            instructions.insert(instructions.end(), else_instructions.begin(), else_instructions.end());
+        }
+        instructions.emplace_back(IR::Label(end_label));
+        return instructions;
+    }
+
+    std::vector<IR::Instruction> gen_labeled_stmt(const AST::LabeledStmt &stmt) {
+        std::vector<IR::Instruction> instructions;
+        instructions.emplace_back(IR::Label(stmt.label));
+        auto stmt_instructions = gen_stmt(*stmt.stmt);
+        instructions.insert(instructions.end(), stmt_instructions.begin(), stmt_instructions.end());
+        return instructions;
+    }
+
+    std::vector<IR::Instruction> gen_goto(const AST::GoToStmt &stmt) {
+        std::vector<IR::Instruction> instructions;
+        instructions.emplace_back(IR::Jump(stmt.label));
+        return instructions;;
+    }
+
     std::vector<IR::Instruction> gen_stmt(const AST::Stmt &stmt) {
         return std::visit(overloaded{
                               [this](const AST::ReturnStmt &stmt) {
@@ -58,9 +90,18 @@ public:
                                   gen_expr(*stmt.expr, instructions);
                                   return instructions;
                               },
+                              [this](const AST::IfStmt &stmt) {
+                                  return gen_if_stmt(stmt);
+                              },
+                              [this](const AST::LabeledStmt &stmt) {
+                                  return gen_labeled_stmt(stmt);
+                              },
+                              [this](const AST::GoToStmt &stmt) {
+                                  return gen_goto(stmt);
+                              },
                               [this](const auto &) {
                                   return std::vector<IR::Instruction>();
-                              }
+                              },
                           }, stmt);
     }
 
@@ -68,6 +109,23 @@ public:
         std::vector<IR::Instruction> instructions;
         instructions.emplace_back(IR::Return(gen_expr(*stmt.expr, instructions)));
         return instructions;
+    }
+
+    IR::Value gen_conditional(const AST::ConditionalExpr &expr, std::vector<IR::Instruction> &instructions) {
+        auto else_label = make_label("else");
+        auto end_label = make_label("end");
+
+        auto condition = gen_expr(*expr.condition, instructions);
+        auto result = IR::Variable(make_temporary());
+        instructions.emplace_back(IR::JumpIfZero(condition, else_label));
+        auto then_result = gen_expr(*expr.then_expr, instructions);
+        instructions.emplace_back(IR::Copy(then_result, result));
+        instructions.emplace_back(IR::Jump(end_label));
+        instructions.emplace_back(IR::Label(else_label));
+        auto else_result = gen_expr(*expr.else_expr, instructions);
+        instructions.emplace_back(IR::Copy(else_result, result));
+        instructions.emplace_back(IR::Label(end_label));
+        return result;
     }
 
     IR::Value gen_expr(const AST::Expr &expr, std::vector<IR::Instruction> &instructions) {
@@ -86,6 +144,9 @@ public:
                               },
                               [this, &instructions](const AST::AssigmentExpr &expr) {
                                   return gen_assigment(expr, instructions);
+                              },
+                              [this, &instructions](const AST::ConditionalExpr &expr) {
+                                  return gen_conditional(expr, instructions);
                               }
                           }, expr);
     }

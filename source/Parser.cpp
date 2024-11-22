@@ -41,7 +41,31 @@ AST::DeclarationHandle Parser::declaration() {
     return std::make_unique<AST::Declaration>(identifier.lexeme, std::move(expr));
 }
 
+AST::StmtHandle Parser::labeled_stmt(const Token &identifier) {
+    expect(Token::Type::COLON);
+    auto stmt = statement();
+    return std::make_unique<AST::Stmt>(AST::LabeledStmt(identifier.lexeme, std::move(stmt)));
+}
+
+AST::StmtHandle Parser::goto_stmt() {
+    auto label = expect(Token::Type::IDENTIFIER);
+    expect(Token::Type::SEMICOLON);
+    return std::make_unique<AST::Stmt>(AST::GoToStmt(label.lexeme));
+}
+
 AST::StmtHandle Parser::statement() {
+    if (peek().type == Token::Type::IDENTIFIER && peek(1).type == Token::Type::COLON) {
+        auto identifier = consume();
+        return labeled_stmt(identifier);
+    }
+
+    if (match(Token::Type::GOTO)) {
+        return goto_stmt();
+    }
+
+    if (match(Token::Type::IF)) {
+        return if_stmt();
+    }
     if (match(Token::Type::RETURN)) {
         auto expr = expression();
         expect(Token::Type::SEMICOLON);
@@ -53,6 +77,19 @@ AST::StmtHandle Parser::statement() {
     auto expr = expression();
     expect(Token::Type::SEMICOLON);
     return std::make_unique<AST::Stmt>(AST::ExprStmt(std::move(expr)));
+}
+
+AST::StmtHandle Parser::if_stmt() {
+    expect(Token::Type::LEFT_PAREN);
+    auto condition = expression();
+    expect(Token::Type::RIGHT_PAREN);
+    auto then_stmt = statement();
+    AST::StmtHandle else_stmt;
+    if (match(Token::Type::ELSE)) {
+        else_stmt = statement();
+    }
+
+    return std::make_unique<AST::Stmt>(AST::IfStmt(std::move(condition), std::move(then_stmt), std::move(else_stmt)));
 }
 
 static bool is_binary_operator(Token::Type type) {
@@ -86,6 +123,7 @@ static bool is_binary_operator(Token::Type type) {
         case Token::Type::BAR_EQUAL:
         case Token::Type::CARET_EQUAL:
         case Token::Type::PERCENT_EQUAL:
+        case Token::Type::QUESTION_MARK:
             return true;
         default:
             return false;
@@ -134,6 +172,8 @@ static Parser::Precedence get_precedence(Token::Type type) {
         case Token::Type::PERCENT_EQUAL:
         case Token::Type::CARET_EQUAL:
             return Parser::Precedence::ASSIGMENT;
+        case Token::Type::QUESTION_MARK:
+            return Parser::Precedence::CONDITIONAL;
     }
 }
 
@@ -146,6 +186,13 @@ AST::ExprHandle Parser::expression(Precedence min_precedence) {
             auto op = compound_operator();
             auto right = expression(get_precedence(token.type));
             left = std::make_unique<AST::Expr>(AST::AssigmentExpr(op, std::move(left), std::move(right)));
+        } else if (token.type == Token::Type::QUESTION_MARK) {
+            consume();
+            auto then_expr = expression();
+            expect(Token::Type::COLON);
+            auto else_expr = expression(get_precedence(token.type));
+            left = std::make_unique<AST::Expr>(
+                AST::ConditionalExpr(std::move(left), std::move(then_expr), std::move(else_expr)));
         } else {
             auto op = binary_operator();
             auto right = expression(get_precedence(token.type) + 1);
@@ -290,8 +337,10 @@ AST::ExprHandle Parser::factor() {
     return {};
 }
 
-Token Parser::peek() {
-    return m_tokens[m_pos];
+// Safety!
+
+Token Parser::peek(int n) {
+    return m_tokens[m_pos + n];
 }
 
 Token Parser::consume() {

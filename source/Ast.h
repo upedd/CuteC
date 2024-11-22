@@ -9,9 +9,10 @@ namespace AST {
     struct Function;
     struct Program;
 
-    using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt>;
+    using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt, struct IfStmt, struct LabeledStmt,
+        struct GoToStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
-        AssigmentExpr>;
+        AssigmentExpr, struct ConditionalExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
     using DeclarationHandle = std::unique_ptr<struct Declaration>;
@@ -112,6 +113,27 @@ namespace AST {
         Operator op;
         ExprHandle left;
         ExprHandle right;
+    };
+
+    struct IfStmt {
+        ExprHandle condition;
+        StmtHandle then_stmt;
+        StmtHandle else_stmt;
+    };
+
+    struct ConditionalExpr {
+        ExprHandle condition;
+        ExprHandle then_expr;
+        ExprHandle else_expr;
+    };
+
+    struct LabeledStmt {
+        std::string label;
+        StmtHandle stmt;
+    };
+
+    struct GoToStmt {
+        std::string label;
     };
 }
 

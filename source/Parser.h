@@ -26,11 +26,18 @@ public:
 
     AST::DeclarationHandle declaration();
 
+    AST::StmtHandle labeled_stmt(const Token &identifer);
+
+    AST::StmtHandle goto_stmt();
+
     AST::StmtHandle statement();
+
+    AST::StmtHandle if_stmt();
 
     enum class Precedence {
         NONE,
         ASSIGMENT,
+        CONDITIONAL,
         LOGICAL_OR,
         LOGICAL_AND,
         BITWISE_OR,
@@ -41,7 +48,6 @@ public:
         BITWISE_SHIFT,
         TERM,
         FACTOR,
-        POSTFIX
     };
 
     AST::ExprHandle expression(Precedence min_precedence = Precedence::NONE);
@@ -60,7 +66,7 @@ public:
     std::vector<Error> errors{};
 
 private:
-    Token peek();
+    Token peek(int n = 0);
 
     Token consume();
 

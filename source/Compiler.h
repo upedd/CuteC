@@ -11,6 +11,7 @@
 #include "IRPrinter.h"
 #include "Lexer.h"
 #include "Parser.h"
+#include "analysis/LabelResolutionPass.h"
 #include "analysis/VariableResolutionPass.h"
 
 
@@ -51,6 +52,16 @@ public:
         if (!variable_resolution_pass.errors.empty()) {
             std::cerr << "variable resolution failed!" << '\n';
             for (const auto &error: variable_resolution_pass.errors) {
+                std::cerr << error.message << '\n';
+            }
+            return {};
+        }
+
+        LabelResolutionPass label_resolution_pass(&parser.program);
+        label_resolution_pass.run();
+        if (!label_resolution_pass.errors.empty()) {
+            std::cerr << "label resolution failed!" << '\n';
+            for (const auto &error: label_resolution_pass.errors) {
                 std::cerr << error.message << '\n';
             }
             return {};

@@ -29,6 +29,8 @@ public:
 
     void resolve_expression(AST::Expr &expr);
 
+    void resolve_conditional(AST::ConditionalExpr &expr);
+
     void resolve_unary(AST::UnaryExpr &expr);
 
     void resolve_binary(AST::BinaryExpr &expr);

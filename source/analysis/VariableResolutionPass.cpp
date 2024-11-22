@@ -50,6 +50,16 @@ void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
                    [this](AST::ExprStmt &stmt) {
                        resolve_expression(*stmt.expr);
                    },
+                   [this](AST::IfStmt &stmt) {
+                       resolve_expression(*stmt.condition);
+                       resolve_statement(*stmt.then_stmt);
+                       if (stmt.else_stmt) {
+                           resolve_statement(*stmt.else_stmt);
+                       }
+                   },
+                   [this](AST::LabeledStmt &stmt) {
+                       resolve_statement(*stmt.stmt);
+                   },
                    [](auto &) {
                    }
                }, stmt);
@@ -69,9 +79,18 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                    [this](AST::VariableExpr &expr) {
                        resolve_variable(expr);
                    },
+                   [this](AST::ConditionalExpr &expr) {
+                       resolve_conditional(expr);
+                   },
                    [this](auto &) {
                    }
                }, expr);
+}
+
+void VariableResolutionPass::resolve_conditional(AST::ConditionalExpr &expr) {
+    resolve_expression(*expr.condition);
+    resolve_expression(*expr.else_expr);
+    resolve_expression(*expr.then_expr);
 }
 
 void VariableResolutionPass::resolve_unary(AST::UnaryExpr &expr) {

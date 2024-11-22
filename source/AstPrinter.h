@@ -58,6 +58,45 @@ public:
         println(")");
     }
 
+    void if_stmt(const AST::IfStmt &stmt) {
+        println("IfStmt(");
+        with_indent([this, &stmt] {
+            println("condition=");
+            with_indent([this, &stmt] {
+                visit_expr(*stmt.condition);
+            });
+            println("then=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.then_stmt);
+            });
+            println("else=");
+            with_indent([this, &stmt] {
+                if (stmt.else_stmt) {
+                    visit_stmt(*stmt.else_stmt);
+                } else {
+                    println("null");
+                }
+            });
+        });
+        println(")");
+    }
+
+    void labeled_stmt(const AST::LabeledStmt &stmt) {
+        println("LabeledStmt(");
+        with_indent([this, &stmt] {
+            println("label=" + stmt.label);
+            println("stmt=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.stmt);
+            });
+        });
+        println(")");
+    }
+
+    void goto_stmt(const AST::GoToStmt &stmt) {
+        println("GoToStmt(label=" + stmt.label + ")");
+    }
+
     void visit_stmt(const Stmt &stmt) {
         std::visit(overloaded{
                        [this](const ReturnStmt &stmt) {
@@ -68,6 +107,15 @@ public:
                        },
                        [this](const NullStmt &stmt) {
                            println("NullStmt");
+                       },
+                       [this](const IfStmt &stmt) {
+                           if_stmt(stmt);
+                       },
+                       [this](const LabeledStmt &stmt) {
+                           labeled_stmt(stmt);
+                       },
+                       [this](const GoToStmt &stmt) {
+                           goto_stmt(stmt);
                        }
                    }, stmt);
     }
@@ -76,6 +124,25 @@ public:
         println("Return(");
         with_indent([this, &stmt] {
             visit_expr(*stmt.expr);
+        });
+        println(")");
+    }
+
+    void conditional_expr(const AST::ConditionalExpr &expr) {
+        println("ConditionalExpr(");
+        with_indent([this, &expr] {
+            println("condition=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.condition);
+            });
+            println("then=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.then_expr);
+            });
+            println("else=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.else_expr);
+            });
         });
         println(")");
     }
@@ -96,6 +163,9 @@ public:
                        },
                        [this](const AssigmentExpr &expr) {
                            assignment_expr(expr);
+                       },
+                       [this](const ConditionalExpr &expr) {
+                           conditional_expr(expr);
                        }
                    }, expr);
     }

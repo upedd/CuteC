@@ -57,6 +57,11 @@ public:
         LESS_LESS_EQUAL,
         GREATER_GREATER_EQUAL,
         PLUS_PLUS,
+        IF,
+        ELSE,
+        QUESTION_MARK,
+        COLON,
+        GOTO
     };
 
     static std::string type_to_string(Type type) {
@@ -141,6 +146,16 @@ public:
                 return "GreaterGreaterEqual";
             case Type::PLUS_PLUS:
                 return "PlusPlus";
+            case Type::IF:
+                return "If";
+            case Type::ELSE:
+                return "Else";
+            case Type::QUESTION_MARK:
+                return "QuestionMark";
+            case Type::COLON:
+                return "Colon";
+            case Type::GOTO:
+                return "Goto";
         }
     }
 

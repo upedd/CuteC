@@ -32,6 +32,12 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::INT);
     } else if (lexeme == "void") {
         make_token(Token::Type::VOID);
+    } else if (lexeme == "if") {
+        make_token(Token::Type::IF);
+    } else if (lexeme == "else") {
+        make_token(Token::Type::ELSE);
+    } else if (lexeme == "goto") {
+        make_token(Token::Type::GOTO);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }
@@ -166,6 +172,12 @@ void Lexer::lex() {
                 } else {
                     make_token(Token::Type::EQUAL);
                 }
+                break;
+            case ':':
+                make_token(Token::Type::COLON);
+                break;
+            case '?':
+                make_token(Token::Type::QUESTION_MARK);
                 break;
             default: {
                 if (is_digit(c)) {
