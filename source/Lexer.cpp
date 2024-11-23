@@ -38,6 +38,22 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::ELSE);
     } else if (lexeme == "goto") {
         make_token(Token::Type::GOTO);
+    } else if (lexeme == "do") {
+        make_token(Token::Type::DO);
+    } else if (lexeme == "while") {
+        make_token(Token::Type::WHILE);
+    } else if (lexeme == "for") {
+        make_token(Token::Type::FOR);
+    } else if (lexeme == "break") {
+        make_token(Token::Type::BREAK);
+    } else if (lexeme == "continue") {
+        make_token(Token::Type::CONTINUE);
+    } else if (lexeme == "switch") {
+        make_token(Token::Type::SWITCH);
+    } else if (lexeme == "case") {
+        make_token(Token::Type::CASE);
+    } else if (lexeme == "default") {
+        make_token(Token::Type::DEFAULT);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }

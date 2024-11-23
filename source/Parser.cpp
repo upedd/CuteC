@@ -57,10 +57,105 @@ std::vector<AST::BlockItem> Parser::block() {
     return items;
 }
 
+AST::StmtHandle Parser::while_stmt() {
+    expect(Token::Type::LEFT_PAREN);
+    auto condition = expression();
+    expect(Token::Type::RIGHT_PAREN);
+    auto body = statement();
+    return std::make_unique<AST::Stmt>(AST::WhileStmt(std::move(condition), std::move(body)));
+}
+
+AST::StmtHandle Parser::do_while_stmt() {
+    auto body = statement();
+    expect(Token::Type::WHILE);
+    expect(Token::Type::LEFT_PAREN);
+    auto condition = expression();
+    expect(Token::Type::RIGHT_PAREN);
+    expect(Token::Type::SEMICOLON);
+    return std::make_unique<AST::Stmt>(AST::DoWhileStmt(std::move(condition), std::move(body)));
+}
+
+AST::StmtHandle Parser::for_stmt() {
+    expect(Token::Type::LEFT_PAREN);
+    std::variant<AST::DeclarationHandle, AST::ExprHandle> init;
+    if (match(Token::Type::INT)) {
+        init = declaration();
+    } else if (!match(Token::Type::SEMICOLON)) {
+        init = expression();
+        expect(Token::Type::SEMICOLON);
+    }
+    AST::ExprHandle condition;
+    if (!match(Token::Type::SEMICOLON)) {
+        condition = expression();
+        expect(Token::Type::SEMICOLON);
+    }
+
+    AST::ExprHandle post;
+    if (!match(Token::Type::RIGHT_PAREN)) {
+        post = expression();
+        expect(Token::Type::RIGHT_PAREN);
+    }
+
+    auto body = statement();
+
+    return std::make_unique<AST::Stmt>(AST::ForStmt(std::move(init), std::move(condition), std::move(post), std::move(body)));
+}
+
+AST::StmtHandle Parser::case_stmt() {
+    auto value = expression();
+    expect(Token::Type::COLON);
+    auto stmt = statement();
+    return std::make_unique<AST::Stmt>(AST::CaseStmt(std::move(value), std::move(stmt)));
+}
+
+AST::StmtHandle Parser::switch_stmt() {
+    expect(Token::Type::LEFT_PAREN);
+    auto expr = expression();
+    expect(Token::Type::RIGHT_PAREN);
+    auto body = statement();
+    return std::make_unique<AST::Stmt>(AST::SwitchStmt(std::move(expr), std::move(body)));
+}
+
 AST::StmtHandle Parser::statement() {
     if (peek().type == Token::Type::IDENTIFIER && peek(1).type == Token::Type::COLON) {
         auto identifier = consume();
         return labeled_stmt(identifier);
+    }
+
+    if (match(Token::Type::CASE)) {
+        return case_stmt();
+    }
+
+    if (match(Token::Type::DEFAULT)) {
+        expect(Token::Type::COLON);
+        auto stmt = statement();
+        return std::make_unique<AST::Stmt>(AST::DefaultStmt(std::move(stmt)));
+    }
+
+    if (match(Token::Type::SWITCH)) {
+        return switch_stmt();
+    }
+
+    if (match(Token::Type::BREAK)) {
+        expect(Token::Type::SEMICOLON);
+        return std::make_unique<AST::Stmt>(AST::BreakStmt());
+    }
+
+    if (match(Token::Type::CONTINUE)) {
+        expect(Token::Type::SEMICOLON);
+        return std::make_unique<AST::Stmt>(AST::ContinueStmt());
+    }
+
+    if (match(Token::Type::WHILE)) {
+        return while_stmt();
+    }
+
+    if (match(Token::Type::DO)) {
+        return do_while_stmt();
+    }
+
+    if (match(Token::Type::FOR)) {
+        return for_stmt();
     }
 
     if (match(Token::Type::LEFT_BRACE)) {

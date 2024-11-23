@@ -32,6 +32,16 @@ public:
 
     std::vector<AST::BlockItem> block();
 
+    AST::StmtHandle while_stmt();
+
+    AST::StmtHandle do_while_stmt();
+
+    AST::StmtHandle for_stmt();
+
+    AST::StmtHandle case_stmt();
+
+    AST::StmtHandle switch_stmt();
+
     AST::StmtHandle statement();
 
     AST::StmtHandle if_stmt();

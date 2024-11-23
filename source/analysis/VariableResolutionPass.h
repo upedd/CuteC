@@ -48,6 +48,8 @@ public:
 
     void resolve_compound(AST::CompoundStmt &stmt);
 
+    void resolve_for(AST::ForStmt & stmt);
+
     std::vector<Error> errors;
 
 private:

@@ -64,6 +64,27 @@ void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
                    [this](AST::CompoundStmt &stmt) {
                        resolve_compound(stmt);
                    },
+                    [this](AST::WhileStmt &stmt) {
+                        resolve_expression(*stmt.condition);
+                        resolve_statement(*stmt.body);
+                    },
+                    [this](AST::DoWhileStmt& stmt) {
+                        resolve_expression(*stmt.condition);
+                        resolve_statement(*stmt.body);
+                    },
+                    [this](AST::ForStmt &stmt) {
+                        resolve_for(stmt);
+                    },
+                    [this](AST::SwitchStmt &stmt){
+                        resolve_expression(*stmt.expr);
+                        resolve_statement(*stmt.body);
+                    },
+                    [this](AST::CaseStmt& stmt) {
+                        resolve_statement(*stmt.stmt);
+                    },
+                    [this](AST::DefaultStmt& stmt) {
+                        resolve_statement(*stmt.stmt);
+                    },
                    [](auto &) {
                    }
                }, stmt);
@@ -149,5 +170,29 @@ std::optional<std::string> VariableResolutionPass::resolve(const std::string &na
 void VariableResolutionPass::resolve_compound(AST::CompoundStmt &stmt) {
     variables.emplace_back();
     resolve_block(stmt.body);
+    variables.pop_back();
+}
+
+void VariableResolutionPass::resolve_for(AST::ForStmt &stmt) {
+    variables.emplace_back();
+    std::visit(overloaded {
+        [this](AST::DeclarationHandle& decl) {
+            if (!decl) return;
+            resolve_declaration(*decl);
+        },
+        [this](AST::ExprHandle& expr) {
+            if (!expr) return;
+            resolve_expression(*expr);
+        }
+    }, stmt.init);
+    if (stmt.condition) {
+        resolve_expression(*stmt.condition);
+    }
+    if (stmt.post) {
+        resolve_expression(*stmt.post);
+    }
+
+    resolve_statement(*stmt.body);
+
     variables.pop_back();
 }

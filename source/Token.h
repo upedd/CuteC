@@ -61,7 +61,15 @@ public:
         ELSE,
         QUESTION_MARK,
         COLON,
-        GOTO
+        GOTO,
+        DO,
+        WHILE,
+        FOR,
+        BREAK,
+        CONTINUE,
+        SWITCH,
+        CASE,
+        DEFAULT
     };
 
     static std::string type_to_string(Type type) {
@@ -156,6 +164,22 @@ public:
                 return "Colon";
             case Type::GOTO:
                 return "Goto";
+            case Type::DO:
+                return "Do";
+            case Type::WHILE:
+                return "While";
+            case Type::FOR:
+                return "For";
+            case Type::BREAK:
+                return "Break";
+            case Type::CONTINUE:
+                return "Continue";
+            case Type::SWITCH:
+                return "Switch";
+            case Type::CASE:
+                return "Case";
+            case Type::DEFAULT:
+                return "Default";
         }
     }
 

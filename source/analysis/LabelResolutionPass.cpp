@@ -22,6 +22,24 @@ void LabelResolutionPass::resolve_stmt(const AST::Stmt &stmt) {
                    [this](const AST::CompoundStmt &stmt) {
                        resolve_block(stmt.body);
                    },
+                    [this](const AST::WhileStmt &stmt) {
+                        resolve_stmt(*stmt.body);
+                    },
+                    [this](const AST::ForStmt &stmt) {
+                        resolve_stmt(*stmt.body);
+                    },
+                    [this](const AST::DoWhileStmt& stmt) {
+                        resolve_stmt(*stmt.body);
+                    },
+        [this](const AST::SwitchStmt &stmt) {
+            resolve_stmt(*stmt.body);
+        },
+        [this](const AST::CaseStmt& stmt) {
+            resolve_stmt(*stmt.stmt);
+        },
+        [this](const AST::DefaultStmt &stmt) {
+            resolve_stmt(*stmt.stmt);
+        },
                    [](const auto &) {
                    }
                }, stmt);

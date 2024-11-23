@@ -107,6 +107,123 @@ public:
         println(")");
     }
 
+    void while_stmt(const WhileStmt & stmt) {
+        println("WhileStmt(");
+        with_indent([this, &stmt] {
+            println("condition=");
+            with_indent([this, &stmt] {
+                visit_expr(*stmt.condition);
+            });
+            println("body=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.body);
+            });
+        });
+        println(")");
+    }
+
+    void do_while_stmt(const DoWhileStmt & stmt) {
+        println("DoWhileStmt(");
+        with_indent([this, &stmt] {
+            println("condition=");
+            with_indent([this, &stmt] {
+                visit_expr(*stmt.condition);
+            });
+            println("body=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.body);
+            });
+        });
+        println(")");
+    }
+
+    void for_stmt(const ForStmt & stmt) {
+        println("ForStmt(");
+        with_indent([this, &stmt] {
+            println("init=");
+            with_indent([this, &stmt] {
+                std::visit(overloaded {
+                    [this] (const DeclarationHandle& decl) {
+                        if (decl) {
+                            visit_decl(*decl);
+                        } else {
+                            println("null");
+                        }
+                    },
+                    [this] (const ExprHandle& expr) {
+                        if (expr) {
+                            visit_expr(*expr);
+                        } else {
+                            println("null");
+                        }
+                    },
+                }, stmt.init);
+            });
+            println("condition=");
+            with_indent([this, &stmt] {
+                if (stmt.condition) {
+                    visit_expr(*stmt.condition);
+                } else {
+                    println("null");
+                }
+            });
+            println("condition=");
+            with_indent([this, &stmt] {
+                if (stmt.post) {
+                    visit_expr(*stmt.post);
+                } else {
+                    println("null");
+                }
+            });
+            println("body=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.body);
+            });
+        });
+        println(")");
+    }
+
+    void switch_stmt(const AST::SwitchStmt & stmt) {
+        println("SwitchStmt(");
+        with_indent([this, &stmt] {
+            println("expr=");
+            with_indent([this, &stmt] {
+                visit_expr(*stmt.expr);
+            });
+            println("body=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.body);
+            });
+        });
+        println(")");
+    }
+
+    void case_stmt(const AST::CaseStmt & stmt) {
+        println("CaseStmt(");
+        with_indent([this, &stmt] {
+            println("value=");
+            with_indent([this, &stmt] {
+                visit_expr(*stmt.value);
+            });
+            println("stmt=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.stmt);
+            });
+        });
+        println(")");
+    }
+
+    void default_stmt(const AST::DefaultStmt & stmt) {
+        println("DefaultStmt(");
+        with_indent([this, &stmt] {
+            println("stmt=");
+            with_indent([this, &stmt] {
+                visit_stmt(*stmt.stmt);
+            });
+        });
+        println(")");
+    }
+
     void visit_stmt(const Stmt &stmt) {
         std::visit(overloaded{
                        [this](const ReturnStmt &stmt) {
@@ -129,7 +246,31 @@ public:
                        },
                        [this](const CompoundStmt &stmt) {
                            compound_stmt(stmt);
-                       }
+                       },
+                        [this](const WhileStmt &stmt) {
+                            while_stmt(stmt);
+                        },
+                        [this](const DoWhileStmt &stmt) {
+                            do_while_stmt(stmt);
+                        },
+                [this](const ForStmt &stmt) {
+                    for_stmt(stmt);
+                },
+            [this](const BreakStmt& stmt) {
+                println("BreakStmt()");
+            },
+            [this](const ContinueStmt &stmt) {
+                println("ContinueStmt()");
+            },
+            [this](const SwitchStmt& stmt) {
+                switch_stmt(stmt);
+            },
+            [this](const CaseStmt &stmt) {
+                case_stmt(stmt);
+            },
+            [this](const DefaultStmt &stmt) {
+                default_stmt(stmt);
+            }
                    }, stmt);
     }
 

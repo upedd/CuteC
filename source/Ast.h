@@ -1,6 +1,7 @@
 #ifndef AST_H
 #define AST_H
 #include <memory>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -10,7 +11,7 @@ namespace AST {
     struct Program;
 
     using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt, struct IfStmt, struct LabeledStmt,
-        struct GoToStmt, struct CompoundStmt>;
+        struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
         AssigmentExpr, struct ConditionalExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
@@ -138,6 +139,53 @@ namespace AST {
 
     struct CompoundStmt {
         std::vector<BlockItem> body;
+    };
+
+    struct BreakStmt {
+        std::string label;
+    };
+
+    struct ContinueStmt {
+        std::string label;
+    };
+
+    struct WhileStmt {
+        ExprHandle condition;
+        StmtHandle body;
+        std::string label;
+    };
+
+    struct DoWhileStmt {
+        ExprHandle condition;
+        StmtHandle body;
+        std::string label;
+    };
+
+    struct ForStmt {
+        std::variant<DeclarationHandle, ExprHandle> init;
+        ExprHandle condition;
+        ExprHandle post;
+        StmtHandle body;
+        std::string label;
+    };
+
+    struct SwitchStmt {
+        ExprHandle expr;
+        StmtHandle body;
+        std::string label;
+        std::unordered_map<int, std::string> cases; // will be resolved in semantic analysis
+        bool has_default = false;
+    };
+
+    struct CaseStmt {
+        ExprHandle value;
+        StmtHandle stmt;
+        std::string label;
+    };
+
+    struct DefaultStmt {
+        StmtHandle stmt;
+        std::string label;
     };
 }
 

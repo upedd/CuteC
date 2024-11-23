@@ -12,6 +12,8 @@
 #include "Lexer.h"
 #include "Parser.h"
 #include "analysis/LabelResolutionPass.h"
+#include "analysis/LoopLabelingPass.h"
+#include "analysis/SwitchResolutionPass.h"
 #include "analysis/VariableResolutionPass.h"
 
 
@@ -62,6 +64,26 @@ public:
         if (!label_resolution_pass.errors.empty()) {
             std::cerr << "label resolution failed!" << '\n';
             for (const auto &error: label_resolution_pass.errors) {
+                std::cerr << error.message << '\n';
+            }
+            return {};
+        }
+
+        LoopLabelingPass loop_labeling_pass(&parser.program);
+        loop_labeling_pass.run();
+        if (!loop_labeling_pass.errors.empty()) {
+            std::cerr << "loop labeling failed!" << '\n';
+            for (const auto &error: loop_labeling_pass.errors) {
+                std::cerr << error.message << '\n';
+            }
+            return {};
+        }
+
+        SwitchResolutionPass switch_resolution_pass(&parser.program);
+        switch_resolution_pass.run();
+        if (!switch_resolution_pass.errors.empty()) {
+            std::cerr << "switch resolution failed!" << '\n';
+            for (const auto &error: switch_resolution_pass.errors) {
                 std::cerr << error.message << '\n';
             }
             return {};
