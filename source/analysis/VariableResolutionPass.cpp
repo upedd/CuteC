@@ -5,16 +5,10 @@
 #include "../overloaded.h"
 #include <ranges>
 
-void VariableResolutionPass::resolve_function(AST::Function &function) {
-    variables.emplace_back();
-    resolve_block(function.body);
-    variables.pop_back();
-}
-
 void VariableResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
     for (auto &item: block) {
         std::visit(overloaded{
-                       [this](AST::DeclarationHandle &item) {
+                       [this](AST::DeclHandle &item) {
                            resolve_declaration(*item);
                        },
                        [this](AST::StmtHandle &item) {
@@ -25,7 +19,11 @@ void VariableResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
 }
 
 void VariableResolutionPass::resolve_program(AST::Program &program) {
-    resolve_function(program.function);
+    variables.emplace_back();
+    for (auto &function: program.functions) {
+        resolve_function_declaration(function);
+    }
+    variables.pop_back();
 }
 
 void VariableResolutionPass::run() {
@@ -37,10 +35,17 @@ std::string VariableResolutionPass::make_temporary(const std::string &original_n
 }
 
 void VariableResolutionPass::resolve_declaration(AST::Declaration &decl) {
-    decl.name = declare(decl.name);
-    if (decl.expr) {
-        resolve_expression(*decl.expr);
-    }
+    std::visit(overloaded{
+                   [this](AST::VariableDecl &decl) {
+                       resolve_variable_decl(decl);
+                   },
+                   [this](AST::FunctionDecl &decl) {
+                       if (decl.body) {
+                           errors.emplace_back("Only top-level function definitions are allowed");
+                       }
+                       resolve_function_declaration(decl);
+                   }
+               }, decl);
 }
 
 void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
@@ -64,27 +69,27 @@ void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
                    [this](AST::CompoundStmt &stmt) {
                        resolve_compound(stmt);
                    },
-                    [this](AST::WhileStmt &stmt) {
-                        resolve_expression(*stmt.condition);
-                        resolve_statement(*stmt.body);
-                    },
-                    [this](AST::DoWhileStmt& stmt) {
-                        resolve_expression(*stmt.condition);
-                        resolve_statement(*stmt.body);
-                    },
-                    [this](AST::ForStmt &stmt) {
-                        resolve_for(stmt);
-                    },
-                    [this](AST::SwitchStmt &stmt){
-                        resolve_expression(*stmt.expr);
-                        resolve_statement(*stmt.body);
-                    },
-                    [this](AST::CaseStmt& stmt) {
-                        resolve_statement(*stmt.stmt);
-                    },
-                    [this](AST::DefaultStmt& stmt) {
-                        resolve_statement(*stmt.stmt);
-                    },
+                   [this](AST::WhileStmt &stmt) {
+                       resolve_expression(*stmt.condition);
+                       resolve_statement(*stmt.body);
+                   },
+                   [this](AST::DoWhileStmt &stmt) {
+                       resolve_expression(*stmt.condition);
+                       resolve_statement(*stmt.body);
+                   },
+                   [this](AST::ForStmt &stmt) {
+                       resolve_for(stmt);
+                   },
+                   [this](AST::SwitchStmt &stmt) {
+                       resolve_expression(*stmt.expr);
+                       resolve_statement(*stmt.body);
+                   },
+                   [this](AST::CaseStmt &stmt) {
+                       resolve_statement(*stmt.stmt);
+                   },
+                   [this](AST::DefaultStmt &stmt) {
+                       resolve_statement(*stmt.stmt);
+                   },
                    [](auto &) {
                    }
                }, stmt);
@@ -106,6 +111,9 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                    },
                    [this](AST::ConditionalExpr &expr) {
                        resolve_conditional(expr);
+                   },
+                   [this](AST::FunctionCall &expr) {
+                       resolve_function_call(expr);
                    },
                    [this](auto &) {
                    }
@@ -150,18 +158,24 @@ void VariableResolutionPass::resolve_variable(AST::VariableExpr &expr) {
     }
 }
 
-std::string VariableResolutionPass::declare(const std::string &name) {
-    if (variables.back().contains(name)) {
-        errors.emplace_back("Variable already declared in current scope: \"" + name + "\"!");
+VariableResolutionPass::Identifier VariableResolutionPass::declare(const Identifier &identifier) {
+    auto &current_scope = variables.back();
+    if (current_scope.contains(identifier.name) && !(
+            current_scope[identifier.name].is_external && identifier.is_external)) {
+        errors.emplace_back("Identifer already declared in current scope: \"" + identifier.name + "\"!");
         // should fail?
     }
-    return variables.back()[name] = make_temporary(name);
+    if (identifier.is_external) {
+        return current_scope[identifier.name] = identifier;
+    }
+    return current_scope[identifier.name] = Identifier(make_temporary(identifier.name), false);
 }
+
 
 std::optional<std::string> VariableResolutionPass::resolve(const std::string &name) {
     for (auto &scope: variables | std::views::reverse) {
         if (scope.contains(name)) {
-            return scope[name];
+            return scope[name].name;
         }
     }
     return {};
@@ -175,16 +189,16 @@ void VariableResolutionPass::resolve_compound(AST::CompoundStmt &stmt) {
 
 void VariableResolutionPass::resolve_for(AST::ForStmt &stmt) {
     variables.emplace_back();
-    std::visit(overloaded {
-        [this](AST::DeclarationHandle& decl) {
-            if (!decl) return;
-            resolve_declaration(*decl);
-        },
-        [this](AST::ExprHandle& expr) {
-            if (!expr) return;
-            resolve_expression(*expr);
-        }
-    }, stmt.init);
+    std::visit(overloaded{
+                   [this](std::unique_ptr<AST::VariableDecl> &decl) {
+                       if (!decl) return;
+                       resolve_variable_decl(*decl);
+                   },
+                   [this](AST::ExprHandle &expr) {
+                       if (!expr) return;
+                       resolve_expression(*expr);
+                   }
+               }, stmt.init);
     if (stmt.condition) {
         resolve_expression(*stmt.condition);
     }
@@ -195,4 +209,35 @@ void VariableResolutionPass::resolve_for(AST::ForStmt &stmt) {
     resolve_statement(*stmt.body);
 
     variables.pop_back();
+}
+
+void VariableResolutionPass::resolve_function_call(AST::FunctionCall &expr) {
+    if (auto resolved = resolve(expr.identifier); !resolved) {
+        errors.emplace_back("Unresolved identifier: \"" + expr.identifier + "\"!");
+    } else {
+        expr.identifier = *resolved;
+    }
+
+    for (auto &arg: expr.arguments) {
+        resolve_expression(*arg);
+    }
+}
+
+void VariableResolutionPass::resolve_function_declaration(AST::FunctionDecl &decl) {
+    decl.name = declare(Identifier(decl.name, true)).name;
+    variables.emplace_back();
+    for (auto &param: decl.params) {
+        param = declare(Identifier(param, false)).name;
+    }
+    if (decl.body) {
+        resolve_block(*decl.body);
+    }
+    variables.pop_back();
+}
+
+void VariableResolutionPass::resolve_variable_decl(AST::VariableDecl &decl) {
+    decl.name = declare(Identifier(decl.name, false)).name;
+    if (decl.expr) {
+        resolve_expression(*decl.expr);
+    }
 }

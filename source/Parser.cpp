@@ -1,21 +1,32 @@
 #include "Parser.h"
 
 void Parser::parse() {
-    program = AST::Program(function());
+    while (!at_end() && match(Token::Type::INT)) {
+        program.functions.emplace_back(function_decl());
+    }
     if (m_pos != m_tokens.size() - 1) {
         errors.emplace_back(std::format("Syntax Error: unexpected token at {}:{}", m_tokens[m_pos].position.line,
                                         m_tokens[m_pos].position.offset));
     }
 }
 
-AST::Function Parser::function() {
-    expect(Token::Type::INT);
+AST::FunctionDecl Parser::function_decl() {
     Token name = expect(Token::Type::IDENTIFIER);
     expect(Token::Type::LEFT_PAREN);
-    expect(Token::Type::VOID);
+    std::vector<std::string> arguments;
+    if (!match(Token::Type::VOID)) {
+        do {
+            expect(Token::Type::INT);
+            auto argument = expect(Token::Type::IDENTIFIER);
+            arguments.emplace_back(argument.lexeme);
+        } while (match(Token::Type::COMMA));
+    }
     expect(Token::Type::RIGHT_PAREN);
+    if (match(Token::Type::SEMICOLON)) {
+        return AST::FunctionDecl(name.lexeme, std::move(arguments));
+    }
     expect(Token::Type::LEFT_BRACE);
-    return AST::Function(name.lexeme, block());
+    return AST::FunctionDecl(name.lexeme, std::move(arguments), block());
 }
 
 
@@ -26,14 +37,21 @@ AST::BlockItem Parser::block_item() {
     return statement();
 }
 
-AST::DeclarationHandle Parser::declaration() {
+AST::DeclHandle Parser::declaration() {
+    if (peek(1).type == Token::Type::LEFT_PAREN) {
+        return std::make_unique<AST::Declaration>(function_decl());
+    }
+    return std::make_unique<AST::Declaration>(variable_declaration());
+}
+
+AST::VariableDecl Parser::variable_declaration() {
     auto identifier = expect(Token::Type::IDENTIFIER);
     AST::ExprHandle expr;
     if (match(Token::Type::EQUAL)) {
         expr = expression();
     }
     expect(Token::Type::SEMICOLON);
-    return std::make_unique<AST::Declaration>(identifier.lexeme, std::move(expr));
+    return AST::VariableDecl(identifier.lexeme, std::move(expr));
 }
 
 AST::StmtHandle Parser::labeled_stmt(const Token &identifier) {
@@ -77,9 +95,9 @@ AST::StmtHandle Parser::do_while_stmt() {
 
 AST::StmtHandle Parser::for_stmt() {
     expect(Token::Type::LEFT_PAREN);
-    std::variant<AST::DeclarationHandle, AST::ExprHandle> init;
+    std::variant<std::unique_ptr<AST::VariableDecl>, AST::ExprHandle> init;
     if (match(Token::Type::INT)) {
-        init = declaration();
+        init = std::make_unique<AST::VariableDecl>(variable_declaration());
     } else if (!match(Token::Type::SEMICOLON)) {
         init = expression();
         expect(Token::Type::SEMICOLON);
@@ -98,7 +116,8 @@ AST::StmtHandle Parser::for_stmt() {
 
     auto body = statement();
 
-    return std::make_unique<AST::Stmt>(AST::ForStmt(std::move(init), std::move(condition), std::move(post), std::move(body)));
+    return std::make_unique<AST::Stmt>(AST::ForStmt(std::move(init), std::move(condition), std::move(post),
+                                                    std::move(body)));
 }
 
 AST::StmtHandle Parser::case_stmt() {
@@ -396,6 +415,17 @@ AST::ExprHandle Parser::primary(const Token &token) {
     return {};
 }
 
+std::vector<AST::ExprHandle> Parser::arguments_list() {
+    std::vector<AST::ExprHandle> arguments;
+    if (!match(Token::Type::RIGHT_PAREN)) {
+        do {
+            arguments.emplace_back(expression());
+        } while (match(Token::Type::COMMA));
+        expect(Token::Type::RIGHT_PAREN);
+    }
+    return arguments;
+}
+
 
 AST::ExprHandle Parser::factor() {
     Token token = consume();
@@ -409,6 +439,10 @@ AST::ExprHandle Parser::factor() {
         if (match(Token::Type::MINUS_MINUS)) {
             return std::make_unique<AST::Expr>(
                 AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_DECREMENT, std::move(primary_expr)));
+        }
+        if (std::holds_alternative<AST::VariableExpr>(*primary_expr) && match(Token::Type::LEFT_PAREN)) {
+            return std::make_unique<AST::Expr>(
+                AST::FunctionCall(std::get<AST::VariableExpr>(*primary_expr).name, arguments_list()));
         }
         return primary_expr;
     }

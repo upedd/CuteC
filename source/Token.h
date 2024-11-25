@@ -69,7 +69,8 @@ public:
         CONTINUE,
         SWITCH,
         CASE,
-        DEFAULT
+        DEFAULT,
+        COMMA,
     };
 
     static std::string type_to_string(Type type) {
@@ -180,6 +181,8 @@ public:
                 return "Case";
             case Type::DEFAULT:
                 return "Default";
+            case Type::COMMA:
+                return "Comma";
         }
     }
 

@@ -20,11 +20,13 @@ public:
 
     void parse();
 
-    AST::Function function();
+    AST::FunctionDecl function_decl();
 
     AST::BlockItem block_item();
 
-    AST::DeclarationHandle declaration();
+    AST::DeclHandle declaration();
+
+    AST::VariableDecl variable_declaration();
 
     AST::StmtHandle labeled_stmt(const Token &identifer);
 
@@ -71,6 +73,8 @@ public:
     AST::BinaryExpr::Kind binary_operator();
 
     AST::ExprHandle primary(const Token &token);
+
+    std::vector<AST::ExprHandle> arguments_list();
 
     AST::ExprHandle factor();
 

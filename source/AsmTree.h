@@ -16,15 +16,17 @@ namespace ASM {
 
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack, struct Binary, struct
-        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label>;
+        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label, struct DeallocateStack,
+        struct Push, struct Call>;
 
     struct Function {
         std::string name;
         std::vector<Instruction> instructions;
+        int stack_size = 0;
     };
 
     struct Program {
-        Function function;
+        std::vector<Function> functions;
     };
 
     struct Imm {
@@ -34,10 +36,14 @@ namespace ASM {
     struct Reg {
         enum class Name {
             AX,
+            CX,
             DX,
+            DI,
+            SI,
+            R8,
+            R9,
             R10,
             R11,
-            CX
         };
 
         Name name;
@@ -117,6 +123,18 @@ namespace ASM {
     };
 
     struct Label {
+        std::string name;
+    };
+
+    struct DeallocateStack {
+        int size;
+    };
+
+    struct Push {
+        Operand value;
+    };
+
+    struct Call {
         std::string name;
     };
 }

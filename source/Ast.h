@@ -1,37 +1,41 @@
 #ifndef AST_H
 #define AST_H
 #include <memory>
+#include <optional>
 #include <unordered_map>
 #include <variant>
 #include <vector>
 
 // TODO: zone allocation
 namespace AST {
-    struct Function;
     struct Program;
 
     using Stmt = std::variant<struct ReturnStmt, struct ExprStmt, struct NullStmt, struct IfStmt, struct LabeledStmt,
-        struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
+        struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct
+        DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
-        AssigmentExpr, struct ConditionalExpr>;
+        AssigmentExpr, struct ConditionalExpr, struct FunctionCall>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
-    using DeclarationHandle = std::unique_ptr<struct Declaration>;
 
-    using BlockItem = std::variant<StmtHandle, DeclarationHandle>;
+    using Declaration = std::variant<struct VariableDecl, struct FunctionDecl>;
+    using DeclHandle = std::unique_ptr<Declaration>;
 
-    struct Declaration {
+    using BlockItem = std::variant<StmtHandle, DeclHandle>;
+
+    struct VariableDecl {
         std::string name;
         ExprHandle expr;
     };
 
-    struct Function {
+    struct FunctionDecl {
         std::string name;
-        std::vector<BlockItem> body;
+        std::vector<std::string> params;
+        std::optional<std::vector<BlockItem> > body;
     };
 
     struct Program {
-        Function function;
+        std::vector<FunctionDecl> functions;
     };
 
     struct ReturnStmt {
@@ -162,7 +166,7 @@ namespace AST {
     };
 
     struct ForStmt {
-        std::variant<DeclarationHandle, ExprHandle> init;
+        std::variant<std::unique_ptr<VariableDecl>, ExprHandle> init;
         ExprHandle condition;
         ExprHandle post;
         StmtHandle body;
@@ -186,6 +190,11 @@ namespace AST {
     struct DefaultStmt {
         StmtHandle stmt;
         std::string label;
+    };
+
+    struct FunctionCall {
+        std::string identifier;
+        std::vector<ExprHandle> arguments;
     };
 }
 

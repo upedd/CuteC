@@ -14,6 +14,7 @@
 #include "analysis/LabelResolutionPass.h"
 #include "analysis/LoopLabelingPass.h"
 #include "analysis/SwitchResolutionPass.h"
+#include "analysis/TypeCheckerPass.h"
 #include "analysis/VariableResolutionPass.h"
 
 
@@ -54,6 +55,16 @@ public:
         if (!variable_resolution_pass.errors.empty()) {
             std::cerr << "variable resolution failed!" << '\n';
             for (const auto &error: variable_resolution_pass.errors) {
+                std::cerr << error.message << '\n';
+            }
+            return {};
+        }
+
+        TypeCheckerPass type_checker(&parser.program);\
+        type_checker.run();
+        if (!type_checker.errors.empty()) {
+            std::cerr << "type check failed!" << '\n';
+            for (const auto &error: type_checker.errors) {
                 std::cerr << error.message << '\n';
             }
             return {};
@@ -116,7 +127,7 @@ public:
             return "";
         }
 
-        CodeEmitter emitter(std::move(asm_tree));
+        CodeEmitter emitter(std::move(asm_tree), &type_checker.symbols);
         emitter.emit();
 
         return emitter.assembly;

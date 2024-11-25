@@ -32,4 +32,6 @@ add_executable(CuteC source/main.cpp
         source/analysis/LoopLabelingPass.cpp
         source/analysis/LoopLabelingPass.h
         source/analysis/SwitchResolutionPass.cpp
-        source/analysis/SwitchResolutionPass.h)
+        source/analysis/SwitchResolutionPass.h
+        source/analysis/TypeCheckerPass.cpp
+        source/analysis/TypeCheckerPass.h)

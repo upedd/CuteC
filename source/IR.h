@@ -8,15 +8,16 @@
 namespace IR {
     using Value = std::variant<struct Constant, struct Variable>;
     using Instruction = std::variant<struct Return, struct Unary, struct Binary, struct Copy, struct Jump, struct
-        JumpIfZero, struct JumpIfNotZero, struct Label>;
+        JumpIfZero, struct JumpIfNotZero, struct Label, struct Call>;
 
     struct Function {
         std::string name;
+        std::vector<std::string> params;
         std::vector<Instruction> instructions;
     };
 
     struct Program {
-        Function function;
+        std::vector<Function> functions;
     };
 
     struct Constant {
@@ -96,6 +97,12 @@ namespace IR {
 
     struct Label {
         std::string name;
+    };
+
+    struct Call {
+        std::string name;
+        std::vector<Value> arguments;
+        Value destination;
     };
 }
 

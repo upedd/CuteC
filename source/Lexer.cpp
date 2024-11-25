@@ -195,6 +195,9 @@ void Lexer::lex() {
             case '?':
                 make_token(Token::Type::QUESTION_MARK);
                 break;
+            case ',':
+                make_token(Token::Type::COMMA);
+                break;
             default: {
                 if (is_digit(c)) {
                     make_constant();

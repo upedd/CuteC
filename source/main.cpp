@@ -15,7 +15,7 @@ int main(int argc, char *argv[]) {
     std::string file_path_string;
 
     Compiler compiler;
-
+    bool generate_object_file = false;
     bool generate_asm = false;
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--lex") {
@@ -30,6 +30,8 @@ int main(int argc, char *argv[]) {
             compiler.only_ir = true;
         } else if (std::string(argv[i]) == "--validate") {
             compiler.only_analysis = true;
+        } else if (std::string(argv[i]) == "-c") {
+            generate_object_file = true;
         } else {
             file_path_string = argv[i];
         }
@@ -62,9 +64,16 @@ int main(int argc, char *argv[]) {
     if (generate_asm) {
         return 0;
     }
-    auto output_path = std::filesystem::path(file_path).replace_extension("");
-    // temp arch only in macOS?
-    system(std::format("arch -x86_64 gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+
+    if (generate_object_file) {
+        auto output_path = std::filesystem::path(file_path).replace_extension(".o");
+        // temp arch only in macOS?
+        system(std::format("arch -x86_64 gcc -c {} -o {}", assembly_path.string(), output_path.string()).c_str());
+    } else {
+        auto output_path = std::filesystem::path(file_path).replace_extension("");
+        // temp arch only in macOS?
+        system(std::format("arch -x86_64 gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+    }
 
     std::filesystem::remove(assembly_path);
 

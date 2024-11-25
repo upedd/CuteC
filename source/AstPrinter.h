@@ -13,22 +13,26 @@ public:
     void program(const Program &program) {
         println("Program(");
         with_indent([this, &program] {
-            function(program.function);
+            for (const auto &func: program.functions) {
+                function(func);
+            }
         });
         println(")");
     }
 
-    void function(const Function &function) {
-        println("Function(");
+    void function(const FunctionDecl &function) {
+        println("FunctionDecl(");
         with_indent([this, &function] {
             println(std::format("name=\"{}\",", function.name));
-            println("body=[");
-            with_indent([this, &function] {
-                for (const auto &item: function.body) {
-                    block_item(item);
-                }
-            });
-            println("]");
+            if (function.body) {
+                println("body=[");
+                with_indent([this, &function] {
+                    for (const auto &item: *function.body) {
+                        block_item(item);
+                    }
+                });
+                println("]");
+            }
         });
         println(")");
     }
@@ -38,14 +42,26 @@ public:
                        [this](const StmtHandle &item) {
                            visit_stmt(*item);
                        },
-                       [this](const DeclarationHandle &item) {
+                       [this](const DeclHandle &item) {
                            visit_decl(*item);
                        }
                    }, item);
     }
 
+
     void visit_decl(const Declaration &decl) {
-        println("Declaration(");
+        std::visit(overloaded{
+                       [this](const VariableDecl &decl) {
+                           visit_variable_decl(decl);
+                       },
+                       [this](const FunctionDecl &decl) {
+                           function(decl);
+                       }
+                   }, decl);
+    }
+
+    void visit_variable_decl(const VariableDecl &decl) {
+        println("VariableDeclaration(");
         with_indent([this, &decl] {
             println(std::format("name={},", decl.name));
             println("value=");
@@ -107,7 +123,7 @@ public:
         println(")");
     }
 
-    void while_stmt(const WhileStmt & stmt) {
+    void while_stmt(const WhileStmt &stmt) {
         println("WhileStmt(");
         with_indent([this, &stmt] {
             println("condition=");
@@ -122,7 +138,7 @@ public:
         println(")");
     }
 
-    void do_while_stmt(const DoWhileStmt & stmt) {
+    void do_while_stmt(const DoWhileStmt &stmt) {
         println("DoWhileStmt(");
         with_indent([this, &stmt] {
             println("condition=");
@@ -137,27 +153,27 @@ public:
         println(")");
     }
 
-    void for_stmt(const ForStmt & stmt) {
+    void for_stmt(const ForStmt &stmt) {
         println("ForStmt(");
         with_indent([this, &stmt] {
             println("init=");
             with_indent([this, &stmt] {
-                std::visit(overloaded {
-                    [this] (const DeclarationHandle& decl) {
-                        if (decl) {
-                            visit_decl(*decl);
-                        } else {
-                            println("null");
-                        }
-                    },
-                    [this] (const ExprHandle& expr) {
-                        if (expr) {
-                            visit_expr(*expr);
-                        } else {
-                            println("null");
-                        }
-                    },
-                }, stmt.init);
+                std::visit(overloaded{
+                               [this](const std::unique_ptr<VariableDecl> &decl) {
+                                   if (decl) {
+                                       visit_variable_decl(*decl);
+                                   } else {
+                                       println("null");
+                                   }
+                               },
+                               [this](const ExprHandle &expr) {
+                                   if (expr) {
+                                       visit_expr(*expr);
+                                   } else {
+                                       println("null");
+                                   }
+                               },
+                           }, stmt.init);
             });
             println("condition=");
             with_indent([this, &stmt] {
@@ -183,7 +199,7 @@ public:
         println(")");
     }
 
-    void switch_stmt(const AST::SwitchStmt & stmt) {
+    void switch_stmt(const AST::SwitchStmt &stmt) {
         println("SwitchStmt(");
         with_indent([this, &stmt] {
             println("expr=");
@@ -198,7 +214,7 @@ public:
         println(")");
     }
 
-    void case_stmt(const AST::CaseStmt & stmt) {
+    void case_stmt(const AST::CaseStmt &stmt) {
         println("CaseStmt(");
         with_indent([this, &stmt] {
             println("value=");
@@ -213,7 +229,7 @@ public:
         println(")");
     }
 
-    void default_stmt(const AST::DefaultStmt & stmt) {
+    void default_stmt(const AST::DefaultStmt &stmt) {
         println("DefaultStmt(");
         with_indent([this, &stmt] {
             println("stmt=");
@@ -247,30 +263,30 @@ public:
                        [this](const CompoundStmt &stmt) {
                            compound_stmt(stmt);
                        },
-                        [this](const WhileStmt &stmt) {
-                            while_stmt(stmt);
-                        },
-                        [this](const DoWhileStmt &stmt) {
-                            do_while_stmt(stmt);
-                        },
-                [this](const ForStmt &stmt) {
-                    for_stmt(stmt);
-                },
-            [this](const BreakStmt& stmt) {
-                println("BreakStmt()");
-            },
-            [this](const ContinueStmt &stmt) {
-                println("ContinueStmt()");
-            },
-            [this](const SwitchStmt& stmt) {
-                switch_stmt(stmt);
-            },
-            [this](const CaseStmt &stmt) {
-                case_stmt(stmt);
-            },
-            [this](const DefaultStmt &stmt) {
-                default_stmt(stmt);
-            }
+                       [this](const WhileStmt &stmt) {
+                           while_stmt(stmt);
+                       },
+                       [this](const DoWhileStmt &stmt) {
+                           do_while_stmt(stmt);
+                       },
+                       [this](const ForStmt &stmt) {
+                           for_stmt(stmt);
+                       },
+                       [this](const BreakStmt &stmt) {
+                           println("BreakStmt()");
+                       },
+                       [this](const ContinueStmt &stmt) {
+                           println("ContinueStmt()");
+                       },
+                       [this](const SwitchStmt &stmt) {
+                           switch_stmt(stmt);
+                       },
+                       [this](const CaseStmt &stmt) {
+                           case_stmt(stmt);
+                       },
+                       [this](const DefaultStmt &stmt) {
+                           default_stmt(stmt);
+                       }
                    }, stmt);
     }
 
@@ -301,6 +317,20 @@ public:
         println(")");
     }
 
+    void function_call_expr(const AST::FunctionCall &expr) {
+        println("FunctionCallExpr(");
+        with_indent([this, &expr] {
+            println("name=" + expr.identifier);
+            println("args=[");
+            with_indent([this, &expr] {
+                for (const auto &arg: expr.arguments) {
+                    visit_expr(*arg);
+                }
+            });
+        });
+        println(")");
+    }
+
     void visit_expr(const Expr &expr) {
         std::visit(overloaded{
                        [this](const ConstantExpr &expr) {
@@ -320,6 +350,9 @@ public:
                        },
                        [this](const ConditionalExpr &expr) {
                            conditional_expr(expr);
+                       },
+                       [this](const FunctionCall &expr) {
+                           function_call_expr(expr);
                        }
                    }, expr);
     }

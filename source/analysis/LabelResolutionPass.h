@@ -20,25 +20,26 @@ public:
  LabelResolutionPass(AST::Program *program) : program(program) {
  }
 
- void resolve_stmt(const AST::Stmt &stmt);
+ void resolve_stmt(AST::Stmt &stmt);
 
- void resolve_function(const AST::Function &function);
+ void resolve_function(AST::FunctionDecl &function);
 
- void resolve_block(const std::vector<AST::BlockItem> &block);
+ void resolve_block(std::vector<AST::BlockItem> &block);
 
- void resolve_program(const AST::Program &program);
+ void resolve_program(AST::Program &program);
 
  void run();
 
- void resolve_goto(const AST::GoToStmt &stmt);
+ void resolve_goto(AST::GoToStmt &stmt);
 
- void resolve_labeled(const AST::LabeledStmt &stmt);
+ void resolve_labeled(AST::LabeledStmt &stmt);
 
 
  std::vector<Error> errors;
 
 private:
- std::unordered_set<std::string> labels;
+ std::string current_function_name;
+ std::unordered_map<std::string, std::string> labels;
  std::unordered_set<std::string> unresolved_labels;
  AST::Program *program;
 };

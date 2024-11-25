@@ -15,15 +15,70 @@ namespace codegen {
         }
 
         void convert() {
-            asmProgram = ASM::Program(convert_function(IRProgram.function));
+            for (const auto &function: IRProgram.functions) {
+                asmProgram.functions.emplace_back(convert_function(function));
+            }
         }
 
         ASM::Function convert_function(const IR::Function &function) {
             std::vector<ASM::Instruction> instructions;
+            static std::vector param_registers = {
+                ASM::Reg::Name::DI, ASM::Reg::Name::SI, ASM::Reg::Name::DX, ASM::Reg::Name::CX, ASM::Reg::Name::R8,
+                ASM::Reg::Name::R9
+            };
+            for (int i = 0; i < std::min(function.params.size(), param_registers.size()); ++i) {
+                instructions.emplace_back(ASM::Mov(ASM::Reg(param_registers[i]), ASM::Pseudo(function.params[i])));
+            }
+
+            for (int i = param_registers.size(); i < function.params.size(); ++i) {
+                instructions.emplace_back(ASM::Mov(ASM::Stack(16 + (i - param_registers.size()) * 8),
+                                                   ASM::Pseudo(function.params[i])));
+            }
+
             for (auto &instruction: function.instructions) {
                 convert_instruction(instruction, instructions);
             }
             return ASM::Function(function.name, std::move(instructions));
+        }
+
+        void convert_call(const IR::Call &call, std::vector<ASM::Instruction> &instructions) {
+            static std::vector arg_registers = {
+                ASM::Reg::Name::DI, ASM::Reg::Name::SI, ASM::Reg::Name::DX, ASM::Reg::Name::CX, ASM::Reg::Name::R8,
+                ASM::Reg::Name::R9
+            };
+
+            int stack_padding = call.arguments.size() % 2 == 0 ? 0 : -8;
+            if (stack_padding != 0) {
+                instructions.emplace_back(ASM::AllocateStack(stack_padding));
+            }
+
+            // register passed arguments
+            for (int i = 0; i < std::min(arg_registers.size(), call.arguments.size()); i++) {
+                instructions.emplace_back(ASM::Mov(convert_value(call.arguments[i]), ASM::Reg(arg_registers[i])));
+            }
+
+            // stack passed arguments
+            for (int i = call.arguments.size() - 1; i >= static_cast<int>(arg_registers.size()); --i) {
+                auto arg = convert_value(call.arguments[i]);
+                if (std::holds_alternative<ASM::Imm>(arg) || std::holds_alternative<ASM::Reg>(arg)) {
+                    instructions.emplace_back(ASM::Push(arg));
+                } else {
+                    instructions.emplace_back(ASM::Mov(arg, ASM::Reg(ASM::Reg::Name::AX)));
+                    instructions.emplace_back(ASM::Push(ASM::Reg(ASM::Reg::Name::AX)));
+                }
+            }
+
+            instructions.emplace_back(ASM::Call(call.name));
+
+            int bytes_to_remove = 8 * std::max(
+                                      0, static_cast<int>(call.arguments.size()) - static_cast<int>(arg_registers.
+                                             size())) + -stack_padding;
+
+            if (bytes_to_remove != 0) {
+                instructions.emplace_back(ASM::DeallocateStack(bytes_to_remove));
+            }
+
+            instructions.emplace_back(ASM::Mov(ASM::Reg(ASM::Reg::Name::AX), convert_value(call.destination)));
         }
 
         void convert_instruction(const IR::Instruction &instruction, std::vector<ASM::Instruction> &instructions) {
@@ -51,6 +106,9 @@ namespace codegen {
                            },
                            [this, &instructions](const IR::Label &instruction) {
                                convert_label(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Call &instruction) {
+                               convert_call(instruction, instructions);
                            }
                        }, instruction);
         }
@@ -206,13 +264,18 @@ namespace codegen {
         }
 
         void process() {
-            visit_function(asmProgram->function);
+            for (auto &function: asmProgram->functions) {
+                visit_function(function);
+            }
         }
 
         void visit_function(ASM::Function &function) {
             for (auto &instruction: function.instructions) {
                 visit_instruction(instruction);
             }
+            function.stack_size = offset;
+            offset = -4;
+            m_offsets.clear();
         }
 
         void visit_instruction(ASM::Instruction &instruction) {
@@ -238,12 +301,15 @@ namespace codegen {
                            [this](ASM::SetCC &mov) {
                                replace(mov.destination);
                            },
+                           [this](ASM::Push &push) {
+                               replace(push.value);
+                           },
                            [this](auto &) {
                            }
                        }, instruction);
         }
 
-        int offset = 4;
+        int offset = -4;
 
     private:
         void replace(ASM::Operand &operand) {
@@ -252,11 +318,11 @@ namespace codegen {
             }
             auto pseudo = std::get<ASM::Pseudo>(operand);
             if (m_offsets.contains(pseudo.name)) {
-                operand = ASM::Stack{-m_offsets[pseudo.name]};
+                operand = ASM::Stack{m_offsets[pseudo.name]};
             } else {
                 m_offsets[pseudo.name] = offset;
-                offset += 4;
-                operand = ASM::Stack{-m_offsets[pseudo.name]};
+                offset -= 4;
+                operand = ASM::Stack{m_offsets[pseudo.name]};
             }
         }
 
@@ -271,12 +337,15 @@ namespace codegen {
         }
 
         void process() {
-            visit_function(asmProgram->function);
+            for (auto &function: asmProgram->functions) {
+                visit_function(function);
+            }
         }
 
         void visit_function(ASM::Function &function) {
             std::vector<ASM::Instruction> fixed_instructions;
-            fixed_instructions.emplace_back(ASM::AllocateStack(m_max_offset));
+            int rounded_stack_size = ((-function.stack_size + 15) / 16) * -16;
+            fixed_instructions.emplace_back(ASM::AllocateStack(rounded_stack_size));
 
             for (auto &instruction: function.instructions) {
                 visit_instruction(instruction, fixed_instructions);

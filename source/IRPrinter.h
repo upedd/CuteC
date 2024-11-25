@@ -12,14 +12,31 @@ public:
     }
 
     void print() {
-        print_function(program->function);
+        for (const auto &function: program->functions) {
+            print_function(function);
+        }
     }
 
     void print_function(const IR::Function &function) {
-        std::cout << "Function(" << function.name << "): \n";
+        std::cout << "Function[" << function.name << "](";
+        for (const auto &param: function.params) {
+            std::cout << param << " ";
+        }
+        std::cout << ")" << '\n';
         for (const auto &ins: function.instructions) {
             print_instruction(ins);
         }
+    }
+
+    void print_call(const IR::Call &ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << " = " << ins.name << " (";
+        for (const auto &arg: ins.arguments) {
+            print_value(arg);
+            std::cout << " ";
+        }
+        std::cout << ")\n";
     }
 
     void print_instruction(const IR::Instruction &instruction) {
@@ -47,6 +64,9 @@ public:
                        },
                        [this](const IR::Label &ins) {
                            print_label(ins);
+                       },
+                       [this](const IR::Call &ins) {
+                           print_call(ins);
                        }
                    }, instruction);
     }

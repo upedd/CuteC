@@ -5,12 +5,15 @@
 #include "AsmTree.h"
 #include "Codegen.h"
 #include "overloaded.h"
+#include "analysis/TypeCheckerPass.h"
 
 // asm tree -> asm file
 
+
 class CodeEmitter {
 public:
-    CodeEmitter(ASM::Program program) : asmProgram(std::move(program)) {
+    CodeEmitter(ASM::Program program,
+                std::unordered_map<std::string, Symbol> *symbols) : asmProgram(std::move(program)), symbols(symbols) {
     }
 
     void emit() {
@@ -18,7 +21,9 @@ public:
     }
 
     void emit_program(const ASM::Program &program) {
-        emit_function(program.function);
+        for (const auto &function: program.functions) {
+            emit_function(function);
+        }
 #if __linux__
         // disable executable stack
         assembly += ".section .note.GNU-stack,\"\",@progbits\n";
@@ -41,6 +46,24 @@ public:
         }
     }
 
+
+    void emit_call(const ASM::Call &ins) {
+#if __APPLE__
+        assembly += "    call _" + ins.name + "\n";
+#else
+        assembly += "    call " + ins.name + (symbols->contains(ins.name) ? "" : "@PLT") + "\n";
+#endif
+    }
+
+    void emit_deallocate_stack(const ASM::DeallocateStack &ins) {
+        assembly += "    addq $" + std::to_string(ins.size) + ", %rsp\n";
+    }
+
+    void emit_push(const ASM::Push &ins) {
+        assembly += "    pushq ";
+        emit_operand(ins.value, 8);
+        assembly += "\n";
+    }
 
     void emit_instruction(const ASM::Instruction &instruction) {
         std::visit(overloaded{
@@ -79,6 +102,15 @@ public:
                        },
                        [this](const ASM::Label &ins) {
                            emit_label(ins);
+                       },
+                       [this](const ASM::Call &ins) {
+                           emit_call(ins);
+                       },
+                       [this](const ASM::DeallocateStack &ins) {
+                           emit_deallocate_stack(ins);
+                       },
+                       [this](const ASM::Push &ins) {
+                           emit_push(ins);
                        }
                    }, instruction);
     }
@@ -111,7 +143,7 @@ public:
     }
 
     void emit_allocate_stack(const ASM::AllocateStack &ins) {
-        assembly += std::format("    subq ${}, %rsp\n", ins.size);
+        assembly += std::format("    subq ${}, %rsp\n", -ins.size);
     }
 
     void emit_binary(const ASM::Binary &ins) {
@@ -142,9 +174,9 @@ public:
                 break;
         }
         if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL) {
-            emit_operand(ins.left, true);
+            emit_operand(ins.left, 1);
         } else {
-            emit_operand(ins.left, false);
+            emit_operand(ins.left);
         }
         assembly += ", ";
         emit_operand(ins.right);
@@ -211,7 +243,7 @@ public:
         assembly += "    set";
         emit_condition_code(ins.cond_code);
         assembly += " ";
-        emit_operand(ins.destination, true);
+        emit_operand(ins.destination, 1);
         assembly += "\n";
     }
 
@@ -228,14 +260,16 @@ public:
 #endif
     }
 
-    void emit_operand(const ASM::Operand &operand, bool emit_1byte_registers = false) {
+    void emit_operand(const ASM::Operand &operand, int reg_size = 4) {
         std::visit(overloaded{
                        [this](const ASM::Imm &operand) {
                            emit_imm(operand);
                        },
-                       [this, emit_1byte_registers](const ASM::Reg &operand) {
-                           if (emit_1byte_registers) {
+                       [this, reg_size](const ASM::Reg &operand) {
+                           if (reg_size == 1) {
                                emit_1byte_register(operand);
+                           } else if (reg_size == 8) {
+                               emit_8byte_register(operand);
                            } else {
                                emit_4byte_register(operand);
                            }
@@ -253,6 +287,38 @@ public:
         assembly += std::format("${}", operand.value);
     }
 
+    void emit_8byte_register(const ASM::Reg &reg) {
+        switch (reg.name) {
+            case ASM::Reg::Name::AX:
+                assembly += "%rax";
+                break;
+            case ASM::Reg::Name::DX:
+                assembly += "%rdx";
+                break;
+            case ASM::Reg::Name::CX:
+                assembly += "%rcx";
+                break;
+            case ASM::Reg::Name::DI:
+                assembly += "%rdi";
+                break;
+            case ASM::Reg::Name::SI:
+                assembly += "%rsi";
+                break;
+            case ASM::Reg::Name::R8:
+                assembly += "%r8";
+                break;
+            case ASM::Reg::Name::R9:
+                assembly += "%r9";
+                break;
+            case ASM::Reg::Name::R10:
+                assembly += "%r10";
+                break;
+            case ASM::Reg::Name::R11:
+                assembly += "%r11";
+                break;
+        }
+    }
+
     void emit_4byte_register(const ASM::Reg &operand) {
         switch (operand.name) {
             case ASM::Reg::Name::AX:
@@ -261,14 +327,26 @@ public:
             case ASM::Reg::Name::DX:
                 assembly += "%edx";
                 break;
+            case ASM::Reg::Name::CX:
+                assembly += "%ecx";
+                break;
+            case ASM::Reg::Name::DI:
+                assembly += "%edi";
+                break;
+            case ASM::Reg::Name::SI:
+                assembly += "%esi";
+                break;
+            case ASM::Reg::Name::R8:
+                assembly += "%r8d";
+                break;
+            case ASM::Reg::Name::R9:
+                assembly += "%r9d";
+                break;
             case ASM::Reg::Name::R10:
                 assembly += "%r10d";
                 break;
             case ASM::Reg::Name::R11:
                 assembly += "%r11d";
-                break;
-            case ASM::Reg::Name::CX:
-                assembly += "%ecx";
                 break;
         }
     }
@@ -281,14 +359,23 @@ public:
             case ASM::Reg::Name::DX:
                 assembly += "%dl";
                 break;
+            case ASM::Reg::Name::CX:
+                assembly += "%cl";
+                break;
+            case ASM::Reg::Name::DI:
+                assembly += "%dil";
+                break;
+            case ASM::Reg::Name::R8:
+                assembly += "%r8b";
+                break;
+            case ASM::Reg::Name::R9:
+                assembly += "%r9b";
+                break;
             case ASM::Reg::Name::R10:
                 assembly += "%r10b";
                 break;
             case ASM::Reg::Name::R11:
                 assembly += "%r11b";
-                break;
-            case ASM::Reg::Name::CX:
-                assembly += "%cl";
                 break;
         }
     }
@@ -302,6 +389,7 @@ public:
 
 private:
     ASM::Program asmProgram;
+    std::unordered_map<std::string, Symbol> *symbols;
 };
 
 #endif //CODEEMITTER_H

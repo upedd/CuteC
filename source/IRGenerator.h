@@ -13,12 +13,15 @@ public:
     }
 
     void generate() {
-        IRProgram = IR::Program(gen_function(astProgram.function));
+        for (const auto &function: astProgram.functions) {
+            if (!function.body) continue;
+            IRProgram.functions.emplace_back(gen_function(function));
+        }
     }
 
-    IR::Function gen_function(const AST::Function &function) {
+    IR::Function gen_function(const AST::FunctionDecl &function) {
         std::vector<IR::Instruction> instructions;
-        for (const auto &item: function.body) {
+        for (const auto &item: *function.body) {
             auto res = gen_block_item(item);
             instructions.insert(instructions.end(), res.begin(), res.end());
         }
@@ -26,7 +29,7 @@ public:
         // implicitly add return 0 to the end of the function.
         instructions.emplace_back(IR::Return(IR::Constant(0)));
 
-        return IR::Function(function.name, std::move(instructions));
+        return IR::Function(function.name, function.params, std::move(instructions));
     }
 
     std::vector<IR::Instruction> gen_block_item(const AST::BlockItem &item) {
@@ -34,18 +37,15 @@ public:
                               [this](const AST::StmtHandle &item) {
                                   return gen_stmt(*item);
                               },
-                              [this](const AST::DeclarationHandle &item) {
+                              [this](const AST::DeclHandle &item) {
                                   return gen_declaration(*item);
                               }
                           }, item);
     }
 
     std::vector<IR::Instruction> gen_declaration(const AST::Declaration &decl) {
-        std::vector<IR::Instruction> instructions;
-        if (decl.expr) {
-            instructions.emplace_back(IR::Copy(gen_expr(*decl.expr, instructions), IR::Variable(decl.name)));
-        }
-        return instructions;
+        if (std::holds_alternative<AST::FunctionDecl>(decl)) return {};
+        return gen_variable_decl(std::get<AST::VariableDecl>(decl));
     }
 
     std::vector<IR::Instruction> gen_if_stmt(const AST::IfStmt &stmt) {
@@ -89,13 +89,13 @@ public:
         return instructions;
     }
 
-    std::vector<IR::Instruction> break_stmt(const AST::BreakStmt & stmt) {
+    std::vector<IR::Instruction> break_stmt(const AST::BreakStmt &stmt) {
         std::vector<IR::Instruction> instructions;
         instructions.emplace_back(IR::Jump(stmt.label + ".break"));
         return instructions;
     }
 
-    std::vector<IR::Instruction> continue_stmt(const AST::ContinueStmt & stmt) {
+    std::vector<IR::Instruction> continue_stmt(const AST::ContinueStmt &stmt) {
         std::vector<IR::Instruction> instructions;
         instructions.emplace_back(IR::Jump(stmt.label + ".continue"));
         return instructions;
@@ -127,19 +127,27 @@ public:
         return instructions;
     }
 
+    std::vector<IR::Instruction> gen_variable_decl(const AST::VariableDecl &decl) {
+        std::vector<IR::Instruction> instructions;
+        if (decl.expr) {
+            instructions.emplace_back(IR::Copy(gen_expr(*decl.expr, instructions), IR::Variable(decl.name)));
+        }
+        return instructions;
+    }
+
     std::vector<IR::Instruction> for_stmt(const AST::ForStmt &stmt) {
         std::vector<IR::Instruction> instructions;
-        std::visit(overloaded {
-            [this, &instructions](const AST::DeclarationHandle& decl) {
-                if (!decl) return;
-                auto decl_instructions = gen_declaration(*decl);
-                instructions.insert(instructions.end(), decl_instructions.begin(), decl_instructions.end());
-            },
-            [this, &instructions](const AST::ExprHandle& expr) {
-                if (!expr) return;
-                gen_expr(*expr, instructions);
-            }
-        }, stmt.init);
+        std::visit(overloaded{
+                       [this, &instructions](const std::unique_ptr<AST::VariableDecl> &decl) {
+                           if (!decl) return;
+                           auto decl_instructions = gen_variable_decl(*decl);
+                           instructions.insert(instructions.end(), decl_instructions.begin(), decl_instructions.end());
+                       },
+                       [this, &instructions](const AST::ExprHandle &expr) {
+                           if (!expr) return;
+                           gen_expr(*expr, instructions);
+                       }
+                   }, stmt.init);
         instructions.emplace_back(IR::Label(stmt.label + ".start"));
         if (stmt.condition) {
             auto condition = gen_expr(*stmt.condition, instructions);
@@ -156,7 +164,7 @@ public:
         return instructions;
     }
 
-    std::vector<IR::Instruction> case_stmt(const AST::CaseStmt & stmt) {
+    std::vector<IR::Instruction> case_stmt(const AST::CaseStmt &stmt) {
         std::vector<IR::Instruction> instructions;
         instructions.emplace_back(IR::Label(stmt.label));
         auto stmt_instructions = gen_stmt(*stmt.stmt);
@@ -164,7 +172,7 @@ public:
         return instructions;
     }
 
-    std::vector<IR::Instruction> default_stmt(const AST::DefaultStmt & stmt) {
+    std::vector<IR::Instruction> default_stmt(const AST::DefaultStmt &stmt) {
         std::vector<IR::Instruction> instructions;
         instructions.emplace_back(IR::Label(stmt.label));
         auto stmt_instructions = gen_stmt(*stmt.stmt);
@@ -172,10 +180,10 @@ public:
         return instructions;
     }
 
-    std::vector<IR::Instruction> switch_stmt(const AST::SwitchStmt & stmt) {
+    std::vector<IR::Instruction> switch_stmt(const AST::SwitchStmt &stmt) {
         std::vector<IR::Instruction> instructions;
         auto result = gen_expr(*stmt.expr, instructions);
-        for (const auto& [value, label] : stmt.cases) {
+        for (const auto &[value, label]: stmt.cases) {
             auto cmp = IR::Variable(make_temporary());
             instructions.emplace_back(IR::Binary(IR::Binary::Operator::EQUAL, result, IR::Constant(value), cmp));
             instructions.emplace_back(IR::JumpIfNotZero(cmp, label));
@@ -215,30 +223,30 @@ public:
                               [this](const AST::CompoundStmt &stmt) {
                                   return gen_compound(stmt);
                               },
-                            [this](const AST::BreakStmt& stmt) {
-                                return break_stmt(stmt);
-                            },
-                            [this](const AST::ContinueStmt& stmt) {
-                                return continue_stmt(stmt);
-                            },
-                            [this](const AST::WhileStmt &stmt) {
-                                return while_stmt(stmt);
-                            },
-                            [this](const AST::DoWhileStmt& stmt) {
-                                return do_while_stmt(stmt);
-                            },
-                            [this](const AST::ForStmt &stmt) {
-                                return for_stmt(stmt);
-                            },
-                            [this](const AST::CaseStmt& stmt) {
-                                return case_stmt(stmt);
-                            },
-            [this](const AST::DefaultStmt& stmt) {
-                return default_stmt(stmt);
-            },
-            [this](const AST::SwitchStmt& stmt) {
-                return switch_stmt(stmt);
-            },
+                              [this](const AST::BreakStmt &stmt) {
+                                  return break_stmt(stmt);
+                              },
+                              [this](const AST::ContinueStmt &stmt) {
+                                  return continue_stmt(stmt);
+                              },
+                              [this](const AST::WhileStmt &stmt) {
+                                  return while_stmt(stmt);
+                              },
+                              [this](const AST::DoWhileStmt &stmt) {
+                                  return do_while_stmt(stmt);
+                              },
+                              [this](const AST::ForStmt &stmt) {
+                                  return for_stmt(stmt);
+                              },
+                              [this](const AST::CaseStmt &stmt) {
+                                  return case_stmt(stmt);
+                              },
+                              [this](const AST::DefaultStmt &stmt) {
+                                  return default_stmt(stmt);
+                              },
+                              [this](const AST::SwitchStmt &stmt) {
+                                  return switch_stmt(stmt);
+                              },
                               [this](const auto &) {
                                   return std::vector<IR::Instruction>();
                               },
@@ -270,6 +278,16 @@ public:
         return result;
     }
 
+    IR::Value gen_function_call(const AST::FunctionCall &expr, std::vector<IR::Instruction> &instructions) {
+        std::vector<IR::Value> arguments;
+        for (const auto &arg: expr.arguments) {
+            arguments.emplace_back(gen_expr(*arg, instructions));
+        }
+        auto result = IR::Variable(make_temporary());
+        instructions.emplace_back(IR::Call(expr.identifier, std::move(arguments), result));
+        return result;
+    }
+
     IR::Value gen_expr(const AST::Expr &expr, std::vector<IR::Instruction> &instructions) {
         return std::visit(overloaded{
                               [this](const AST::ConstantExpr &expr) {
@@ -289,6 +307,9 @@ public:
                               },
                               [this, &instructions](const AST::ConditionalExpr &expr) {
                                   return gen_conditional(expr, instructions);
+                              },
+                              [this, &instructions](const AST::FunctionCall &expr) {
+                                  return gen_function_call(expr, instructions);
                               }
                           }, expr);
     }
