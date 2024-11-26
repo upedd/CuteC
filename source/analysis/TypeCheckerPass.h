@@ -13,9 +13,34 @@ struct FunctionType {
 
 using Type = std::variant<IntType, FunctionType>;
 
+
+
+struct Initial {
+    int value;
+};
+
+struct NoInitializer {};
+struct Tentative {};
+
+using InitialValue = std::variant<Tentative, Initial, NoInitializer>
+
+struct FunctionAttributes {
+    bool defined;
+    bool global;
+};
+
+struct StaticAttributes {
+    InitialValue initial_value;
+    bool global;
+};
+
+struct LocalAttributes {};
+
+using IdentifierAttributes = std::variant<FunctionAttributes, StaticAttributes, LocalAttributes>;
+
 struct Symbol {
     Type type;
-    bool defined = false;
+    IdentifierAttributes attributes;
 };
 
 class TypeCheckerPass {
@@ -29,6 +54,10 @@ public:
     };
 
     void check_block(const std::vector<AST::BlockItem> &block);
+
+    void file_scope_variable_declaration(const AST::FunctionDecl &decl);
+
+    void local_variable_declaration(const AST::VariableDecl &decl);
 
     void check_function_decl(const AST::FunctionDecl &function);
 

@@ -27,6 +27,8 @@ public:
 
     void resolve_program(AST::Program &program);
 
+    void resolve_file_scope_variable_declaration(AST::VariableDecl &decl);
+
     void run();
 
     std::string make_temporary(const std::string &original_name);

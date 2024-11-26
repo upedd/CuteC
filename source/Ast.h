@@ -23,19 +23,29 @@ namespace AST {
 
     using BlockItem = std::variant<StmtHandle, DeclHandle>;
 
+    enum class StorageClass {
+        NONE,
+        STATIC,
+        EXTERN
+    };
+
     struct VariableDecl {
         std::string name;
         ExprHandle expr;
+        StorageClass storage_class;
     };
 
     struct FunctionDecl {
         std::string name;
         std::vector<std::string> params;
         std::optional<std::vector<BlockItem> > body;
+        StorageClass storage_class;
     };
 
+
+
     struct Program {
-        std::vector<FunctionDecl> functions;
+        std::vector<DeclHandle> declarations;
     };
 
     struct ReturnStmt {

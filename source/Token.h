@@ -71,6 +71,8 @@ public:
         CASE,
         DEFAULT,
         COMMA,
+        STATIC,
+        EXTERN,
     };
 
     static std::string type_to_string(Type type) {
@@ -183,9 +185,13 @@ public:
                 return "Default";
             case Type::COMMA:
                 return "Comma";
+            case Type::STATIC:
+                return "Static";
+            case Type::EXTERN:
+                return "Extern";
         }
-    }
-
+    }asdd
+sd
     Token(Type type, Position position, std::string lexeme = {}) : type(type), position(position),
                                                                    lexeme(std::move(lexeme)) {
     }

@@ -1,3 +1,5 @@
-int main(void) {
-    return 2;
+int putchar(int c);
+
+int incr_and_print(int b) {
+    return putchar(b + 2);
 }

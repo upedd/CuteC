@@ -68,11 +68,20 @@ int main(int argc, char *argv[]) {
     if (generate_object_file) {
         auto output_path = std::filesystem::path(file_path).replace_extension(".o");
         // temp arch only in macOS?
+#if __APPLE__
         system(std::format("arch -x86_64 gcc -c {} -o {}", assembly_path.string(), output_path.string()).c_str());
+#else
+        system(std::format("gcc -c {} -o {}", assembly_path.string(), output_path.string()).c_str());
+#endif
     } else {
         auto output_path = std::filesystem::path(file_path).replace_extension("");
         // temp arch only in macOS?
+#if __APPLE__
         system(std::format("arch -x86_64 gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+#else
+        system(std::format("gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+
+#endif
     }
 
     std::filesystem::remove(assembly_path);

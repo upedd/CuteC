@@ -1,8 +1,45 @@
 #include "Parser.h"
 
+#include "Token.h"
+#include "analysis/TypeCheckerPass.h"
+
+
+static bool is_specifier(Token::Type type) {
+    return type == Token::Type::STATIC || type == Token::Type::EXTERN || type == Token::Type::INT;
+}
+
+std::pair<Type, AST::StorageClass> Parser::parse_type_and_storage_class() {
+    std::vector<Type> types;
+    std::vector<AST::StorageClass> storage_classes;
+    while (is_specifier(peek().type)) {
+        auto specifier = consume();
+        if (specifier.type == Token::Type::INT) {
+            types.emplace_back(IntType());
+        } else if (specifier.type == Token::Type::EXTERN) {
+            storage_classes.emplace_back(AST::StorageClass::EXTERN);
+        } else if (specifier.type == Token::Type::STATIC) {
+            storage_classes.emplace_back(AST::StorageClass::STATIC);
+        }
+    }
+
+    if (types.size() != 1) {
+        errors.emplace_back("Invalid declaration type");
+    }
+    if (storage_classes.size() > 1) {
+        errors.emplace_back("Invalid declaration storage class");
+    }
+
+    if (storage_classes.empty()) {
+        storage_classes.emplace_back(AST::StorageClass::NONE);
+    }
+    // TODO: should continue with error!
+    return {types[0], storage_classes[0]};
+}
+
+
 void Parser::parse() {
-    while (!at_end() && match(Token::Type::INT)) {
-        program.functions.emplace_back(function_decl());
+    while (!at_end() && is_specifier(peek().type)) {
+        program.declarations.emplace_back(declaration());
     }
     if (m_pos != m_tokens.size() - 1) {
         errors.emplace_back(std::format("Syntax Error: unexpected token at {}:{}", m_tokens[m_pos].position.line,
@@ -10,7 +47,7 @@ void Parser::parse() {
     }
 }
 
-AST::FunctionDecl Parser::function_decl() {
+AST::FunctionDecl Parser::function_decl(const std::pair<Type, AST::StorageClass>& type_and_storage_class) {
     Token name = expect(Token::Type::IDENTIFIER);
     expect(Token::Type::LEFT_PAREN);
     std::vector<std::string> arguments;
@@ -26,32 +63,34 @@ AST::FunctionDecl Parser::function_decl() {
         return AST::FunctionDecl(name.lexeme, std::move(arguments));
     }
     expect(Token::Type::LEFT_BRACE);
-    return AST::FunctionDecl(name.lexeme, std::move(arguments), block());
+    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), type_and_storage_class.second);
 }
 
 
 AST::BlockItem Parser::block_item() {
-    if (match(Token::Type::INT)) {
+    if (is_specifier(peek().type)) {
         return declaration();
     }
     return statement();
 }
 
 AST::DeclHandle Parser::declaration() {
+    auto type_and_storage_class = parse_type_and_storage_class();
+
     if (peek(1).type == Token::Type::LEFT_PAREN) {
-        return std::make_unique<AST::Declaration>(function_decl());
+        return std::make_unique<AST::Declaration>(function_decl(type_and_storage_class));
     }
-    return std::make_unique<AST::Declaration>(variable_declaration());
+    return std::make_unique<AST::Declaration>(variable_declaration(type_and_storage_class));
 }
 
-AST::VariableDecl Parser::variable_declaration() {
+AST::VariableDecl Parser::variable_declaration(const std::pair<Type, AST::StorageClass>& type_and_storage_class) {
     auto identifier = expect(Token::Type::IDENTIFIER);
     AST::ExprHandle expr;
     if (match(Token::Type::EQUAL)) {
         expr = expression();
     }
     expect(Token::Type::SEMICOLON);
-    return AST::VariableDecl(identifier.lexeme, std::move(expr));
+    return AST::VariableDecl(identifier.lexeme, std::move(expr), type_and_storage_class.second);
 }
 
 AST::StmtHandle Parser::labeled_stmt(const Token &identifier) {
@@ -97,7 +136,7 @@ AST::StmtHandle Parser::for_stmt() {
     expect(Token::Type::LEFT_PAREN);
     std::variant<std::unique_ptr<AST::VariableDecl>, AST::ExprHandle> init;
     if (match(Token::Type::INT)) {
-        init = std::make_unique<AST::VariableDecl>(variable_declaration());
+        init = std::make_unique<AST::VariableDecl>(variable_declaration({IntType(), AST::StorageClass::NONE}));
     } else if (!match(Token::Type::SEMICOLON)) {
         init = expression();
         expect(Token::Type::SEMICOLON);

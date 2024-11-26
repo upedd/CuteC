@@ -6,6 +6,7 @@
 
 #include "Ast.h"
 #include "Token.h"
+#include "analysis/TypeCheckerPass.h"
 
 
 class Parser {
@@ -18,15 +19,17 @@ public:
     explicit Parser(std::vector<Token> tokens) : m_tokens(std::move(tokens)) {
     }
 
+    std::pair<Type, AST::StorageClass> parse_type_and_storage_class();
+
     void parse();
 
-    AST::FunctionDecl function_decl();
+    AST::FunctionDecl function_decl(const std::pair<Type, AST::StorageClass> &type_and_storage_class);
 
     AST::BlockItem block_item();
 
     AST::DeclHandle declaration();
 
-    AST::VariableDecl variable_declaration();
+    AST::VariableDecl variable_declaration(const std::pair<Type, AST::StorageClass> &type_and_storage_class);
 
     AST::StmtHandle labeled_stmt(const Token &identifer);
 

@@ -54,6 +54,10 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::CASE);
     } else if (lexeme == "default") {
         make_token(Token::Type::DEFAULT);
+    } else if (lexeme == "extern") {
+        make_token(Token::Type::EXTERN);
+    } else if (lexeme == "static") {
+        make_token(Token::Type::STATIC);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }

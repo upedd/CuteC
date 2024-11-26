@@ -20,11 +20,27 @@ void VariableResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
 
 void VariableResolutionPass::resolve_program(AST::Program &program) {
     variables.emplace_back();
-    for (auto &function: program.functions) {
-        resolve_function_declaration(function);
+    for (auto &declaration: program.declarations) {
+
+        std::visit(overloaded {
+            [this](AST::FunctionDecl& decl) {
+                resolve_function_declaration(decl);
+            },
+            [this](AST::VariableDecl& decl) {
+                resolve_file_scope_variable_declaration(decl);
+            }
+
+        }, *declaration);
+        //resolve_function_declaration(function);
     }
     variables.pop_back();
 }
+
+
+void VariableResolutionPass::resolve_file_scope_variable_declaration(AST::VariableDecl& decl) {
+    decl.name = declare(Identifier(decl.name, true)).name;
+}
+
 
 void VariableResolutionPass::run() {
     resolve_program(*program);
@@ -42,6 +58,9 @@ void VariableResolutionPass::resolve_declaration(AST::Declaration &decl) {
                    [this](AST::FunctionDecl &decl) {
                        if (decl.body) {
                            errors.emplace_back("Only top-level function definitions are allowed");
+                       }
+                       if (decl.storage_class == AST::StorageClass::STATIC) {
+                           errors.emplace_back("Function declarations with static specifier outside of file scope is disallowed");
                        }
                        resolve_function_declaration(decl);
                    }
@@ -236,8 +255,12 @@ void VariableResolutionPass::resolve_function_declaration(AST::FunctionDecl &dec
 }
 
 void VariableResolutionPass::resolve_variable_decl(AST::VariableDecl &decl) {
-    decl.name = declare(Identifier(decl.name, false)).name;
+    decl.name = declare(Identifier(decl.name, decl.storage_class == AST::StorageClass::EXTERN)).name;
     if (decl.expr) {
+        if (decl.storage_class == AST::StorageClass::EXTERN) {
+            errors.emplace_back("Initialization of external variables inside of blocks is disallowed.");
+        }
+
         resolve_expression(*decl.expr);
     }
 }
