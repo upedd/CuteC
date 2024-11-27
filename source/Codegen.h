@@ -7,6 +7,7 @@
 #include "Ast.h"
 #include "IR.h"
 #include "overloaded.h"
+#include "analysis/TypeCheckerPass.h"
 
 namespace codegen {
     class IRToAsmTreePass {
@@ -14,11 +15,24 @@ namespace codegen {
         IRToAsmTreePass(IR::Program IRProgram) : IRProgram(std::move(IRProgram)) {
         }
 
+
         void convert() {
-            for (const auto &function: IRProgram.functions) {
-                asmProgram.functions.emplace_back(convert_function(function));
+            for (const auto &item: IRProgram.items) {
+                std::visit(overloaded {
+                    [this](const IR::Function& function) {
+                        asmProgram.items.emplace_back(convert_function(function));
+                    },
+                    [this](const IR::StaticVariable& variable) {
+                        asmProgram.items.emplace_back(convert_static_variable(variable));
+                    }
+                }, item);
             }
         }
+
+        ASM::StaticVariable convert_static_variable(const IR::StaticVariable & variable) {
+            return {variable.name, variable.global, variable.initial_value};
+        }
+
 
         ASM::Function convert_function(const IR::Function &function) {
             std::vector<ASM::Instruction> instructions;
@@ -38,7 +52,7 @@ namespace codegen {
             for (auto &instruction: function.instructions) {
                 convert_instruction(instruction, instructions);
             }
-            return ASM::Function(function.name, std::move(instructions));
+            return ASM::Function(function.name, function.global, std::move(instructions));
         }
 
         void convert_call(const IR::Call &call, std::vector<ASM::Instruction> &instructions) {
@@ -260,12 +274,14 @@ namespace codegen {
 
     class ReplacePseudoRegistersPass {
     public:
-        explicit ReplacePseudoRegistersPass(ASM::Program *asmProgram) : asmProgram(asmProgram) {
+        explicit ReplacePseudoRegistersPass(ASM::Program *asmProgram, std::unordered_map<std::string, Symbol>* symbols) : asmProgram(asmProgram), symbols(symbols) {
         }
 
         void process() {
-            for (auto &function: asmProgram->functions) {
-                visit_function(function);
+            for (auto &item: asmProgram->items) {
+                if (std::holds_alternative<ASM::Function>(item)) {
+                    visit_function(std::get<ASM::Function>(item));
+                }
             }
         }
 
@@ -316,16 +332,23 @@ namespace codegen {
             if (!std::holds_alternative<ASM::Pseudo>(operand)) {
                 return;
             }
+
             auto pseudo = std::get<ASM::Pseudo>(operand);
-            if (m_offsets.contains(pseudo.name)) {
-                operand = ASM::Stack{m_offsets[pseudo.name]};
+
+            if (symbols->contains(pseudo.name) && std::holds_alternative<StaticAttributes>((*symbols)[pseudo.name].attributes)) {
+                operand = ASM::Data(pseudo.name);
             } else {
-                m_offsets[pseudo.name] = offset;
-                offset -= 4;
-                operand = ASM::Stack{m_offsets[pseudo.name]};
+                if (m_offsets.contains(pseudo.name)) {
+                    operand = ASM::Stack{m_offsets[pseudo.name]};
+                } else {
+                    m_offsets[pseudo.name] = offset;
+                    offset -= 4;
+                    operand = ASM::Stack{m_offsets[pseudo.name]};
+                }
             }
         }
 
+        std::unordered_map<std::string, Symbol>* symbols;
         std::unordered_map<std::string, int> m_offsets;
         ASM::Program *asmProgram;
     };
@@ -337,8 +360,10 @@ namespace codegen {
         }
 
         void process() {
-            for (auto &function: asmProgram->functions) {
-                visit_function(function);
+            for (auto &item: asmProgram->items) {
+                if (std::holds_alternative<ASM::Function>(item)) {
+                    visit_function(std::get<ASM::Function>(item));
+                }
             }
         }
 
@@ -374,8 +399,12 @@ namespace codegen {
                        }, instruction);
         }
 
+        bool is_memory_address(const ASM::Operand& operand) {
+            return std::holds_alternative<ASM::Stack>(operand) || std::holds_alternative<ASM::Data>(operand);
+        }
+
         void fix_mov(ASM::Mov &mov, std::vector<ASM::Instruction> &output) {
-            if (std::holds_alternative<ASM::Stack>(mov.src) && std::holds_alternative<ASM::Stack>(mov.dst)) {
+            if (is_memory_address(mov.src) && is_memory_address(mov.dst)) {
                 output.emplace_back(ASM::Mov{mov.src, ASM::Reg(ASM::Reg::Name::R10)});
                 mov.src = ASM::Reg(ASM::Reg::Name::R10);
             }
@@ -384,16 +413,16 @@ namespace codegen {
 
         void fix_binary(ASM::Binary &binary, std::vector<ASM::Instruction> &output) {
             if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL) &&
-                std::holds_alternative<ASM::Stack>(binary.right)) {
+                is_memory_address(binary.right)) {
                 output.emplace_back(ASM::Mov{binary.left, ASM::Reg(ASM::Reg::Name::CX)});
                 binary.left = ASM::Reg(ASM::Reg::Name::CX);
                 output.emplace_back(binary);
-            } else if (binary.op == ASM::Binary::Operator::MULT && std::holds_alternative<ASM::Stack>(binary.right)) {
+            } else if (binary.op == ASM::Binary::Operator::MULT && is_memory_address(binary.right)) {
                 output.emplace_back(ASM::Mov(binary.right, ASM::Reg(ASM::Reg::Name::R11)));
                 output.emplace_back(
                     ASM::Binary(binary.op, binary.left, ASM::Reg(ASM::Reg::Name::R11)));
                 output.emplace_back(ASM::Mov{ASM::Reg(ASM::Reg::Name::R11), binary.right});
-            } else if (std::holds_alternative<ASM::Stack>(binary.left) && std::holds_alternative<ASM::Stack>(
+            } else if (is_memory_address(binary.left) && is_memory_address(
                            binary.right)) {
                 output.emplace_back(ASM::Mov{binary.left, ASM::Reg(ASM::Reg::Name::R10)});
                 binary.left = ASM::Reg(ASM::Reg::Name::R10);
@@ -412,7 +441,7 @@ namespace codegen {
         }
 
         void fix_cmp(ASM::Cmp &cmp, std::vector<ASM::Instruction> &output) {
-            if (std::holds_alternative<ASM::Stack>(cmp.left) && std::holds_alternative<ASM::Stack>(cmp.right)) {
+            if (is_memory_address(cmp.left) && is_memory_address(cmp.right)) {
                 output.emplace_back(ASM::Mov{cmp.left, ASM::Reg(ASM::Reg::Name::R10)});
                 cmp.left = ASM::Reg(ASM::Reg::Name::R10);
             }

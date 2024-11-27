@@ -14,19 +14,26 @@ namespace ASM {
         LE
     };
 
-    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack>;
+    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack, struct Data>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack, struct Binary, struct
         Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label, struct DeallocateStack,
         struct Push, struct Call>;
 
     struct Function {
         std::string name;
+        bool global;
         std::vector<Instruction> instructions;
         int stack_size = 0;
     };
 
+    struct StaticVariable {
+        std::string name;
+        bool global;
+        int initial_value;
+    };
+
     struct Program {
-        std::vector<Function> functions;
+        std::vector<std::variant<Function, StaticVariable>> items;
     };
 
     struct Imm {
@@ -55,6 +62,10 @@ namespace ASM {
 
     struct Stack {
         int offset;
+    };
+
+    struct Data {
+        std::string identifier;
     };
 
     struct Mov {

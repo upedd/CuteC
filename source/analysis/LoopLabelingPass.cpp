@@ -73,8 +73,10 @@ void LoopLabelingPass::label_function(AST::FunctionDecl &function) {
 }
 
 void LoopLabelingPass::label_program(AST::Program &program) {
-    for (auto &function: program.functions) {
-        label_function(function);
+    for (auto &declaration: program.declarations) {
+        if (std::holds_alternative<AST::FunctionDecl>(*declaration)) {
+            label_function(std::get<AST::FunctionDecl>(*declaration));
+        }
     }
 }
 

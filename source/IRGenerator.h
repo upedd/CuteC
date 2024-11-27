@@ -1,5 +1,7 @@
 #ifndef IRGENERATOR_H
 #define IRGENERATOR_H
+#include <functional>
+
 #include "Ast.h"
 #include "IR.h"
 #include "overloaded.h"
@@ -9,13 +11,31 @@
 
 class IRGenerator {
 public:
-    explicit IRGenerator(AST::Program program) : astProgram(std::move(program)) {
+    explicit IRGenerator(AST::Program program, std::unordered_map<std::string, Symbol>* symbols) : astProgram(std::move(program)), symbols(symbols) {
     }
 
     void generate() {
-        for (const auto &function: astProgram.functions) {
-            if (!function.body) continue;
-            IRProgram.functions.emplace_back(gen_function(function));
+        for (const auto &declaration: astProgram.declarations) {
+            if (std::holds_alternative<AST::FunctionDecl>(*declaration)) {
+                auto& function_declaration = std::get<AST::FunctionDecl>(*declaration);
+                if (!function_declaration.body) continue;
+                IRProgram.items.emplace_back(gen_function(function_declaration));
+            }
+        }
+
+        for (const auto& [name, symbol] : *symbols) {
+            if (std::holds_alternative<StaticAttributes>(symbol.attributes)) {
+                auto& attributes = std::get<StaticAttributes>(symbol.attributes);
+                std::visit(overloaded {
+                    [this, &name, &attributes](const Initial& init) {
+                        IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, init.value));
+                    },
+                    [this, &attributes, &name](const Tentative& init) {
+                        IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, 0));
+                    },
+                    [](const NoInitializer&) {}
+                }, attributes.initial_value);
+            }
         }
     }
 
@@ -29,7 +49,9 @@ public:
         // implicitly add return 0 to the end of the function.
         instructions.emplace_back(IR::Return(IR::Constant(0)));
 
-        return IR::Function(function.name, function.params, std::move(instructions));
+        auto& attributes = std::get<FunctionAttributes>(symbols->at(function.name).attributes);
+
+        return IR::Function(function.name, attributes.global, function.params, std::move(instructions));
     }
 
     std::vector<IR::Instruction> gen_block_item(const AST::BlockItem &item) {
@@ -129,7 +151,7 @@ public:
 
     std::vector<IR::Instruction> gen_variable_decl(const AST::VariableDecl &decl) {
         std::vector<IR::Instruction> instructions;
-        if (decl.expr) {
+        if (decl.expr && decl.storage_class != AST::StorageClass::STATIC) {
             instructions.emplace_back(IR::Copy(gen_expr(*decl.expr, instructions), IR::Variable(decl.name)));
         }
         return instructions;
@@ -501,6 +523,7 @@ private:
     int m_label_counter = 0;
 
     AST::Program astProgram;
+    std::unordered_map<std::string, Symbol>* symbols;
 };
 
 #endif //IRGENERATOR_H

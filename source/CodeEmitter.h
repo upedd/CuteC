@@ -20,9 +20,17 @@ public:
         emit_program(asmProgram);
     }
 
+
     void emit_program(const ASM::Program &program) {
-        for (const auto &function: program.functions) {
-            emit_function(function);
+        for (const auto &item: program.items) {
+            std::visit(overloaded {
+                [this](const ASM::Function& item) {
+                    emit_function(item);
+                },
+                [this](const ASM::StaticVariable& item) {
+                    emit_static_variable(item);
+                }
+            }, item);
         }
 #if __linux__
         // disable executable stack
@@ -32,19 +40,53 @@ public:
 
     void emit_function(const ASM::Function &function) {
         // functions names on apple must be prefixed by an underscore
+        if (function.global) {
 #if __APPLE__
-        assembly += "    .global _" + function.name + "\n";
+            assembly += "    .global _" + function.name + "\n";
+#else
+            assembly += "    .global " + function.name + "\n";
+#endif
+        }
+#if __APPLE__
         assembly += "_" + function.name + ":\n";
 #else
-        assembly += "    .global " + function.name + "\n";
         assembly += function.name + ":\n";
 #endif
+        assembly += "    .text\n";
         assembly += "    pushq %rbp\n";
         assembly += "    movq %rsp, %rbp\n";
         for (const auto &instruction: function.instructions) {
             emit_instruction(instruction);
         }
     }
+
+    void emit_static_variable(const ASM::StaticVariable & variable) {
+        if (variable.global) {
+#if __APPLE__
+            assembly += "    .global _" + variable.name + "\n";
+#else
+            assembly += "    .global " + variable.name + "\n";
+#endif
+        }
+
+        if (variable.initial_value == 0) {
+            assembly += "    .bss\n";
+        } else {
+            assembly += "    .data\n";
+        }
+        assembly += "    .balign 4\n";
+#if __APPLE__
+        assembly += "_" + variable.name + ":\n";
+#else
+        assembly += variable.name + ":\n";
+#endif
+        if (variable.initial_value == 0) {
+            assembly += "    .zero 4\n";
+        } else {
+            assembly += "    .long " + std::to_string(variable.initial_value) + "\n";
+        }
+    }
+
 
 
     void emit_call(const ASM::Call &ins) {
@@ -260,6 +302,7 @@ public:
 #endif
     }
 
+
     void emit_operand(const ASM::Operand &operand, int reg_size = 4) {
         std::visit(overloaded{
                        [this](const ASM::Imm &operand) {
@@ -277,6 +320,9 @@ public:
                        [this](const ASM::Stack &operand) {
                            emit_stack(operand);
                        },
+                       [this](const ASM::Data& operand) {
+                           emit_data(operand);
+                       },
                        [this](auto &) {
                            // TODO: panic
                        }
@@ -285,6 +331,9 @@ public:
 
     void emit_imm(const ASM::Imm &operand) {
         assembly += std::format("${}", operand.value);
+    }
+    void emit_data(const ASM::Data & data) {
+        assembly += data.identifier + "(%rip)";
     }
 
     void emit_8byte_register(const ASM::Reg &reg) {

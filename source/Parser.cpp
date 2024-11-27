@@ -60,7 +60,7 @@ AST::FunctionDecl Parser::function_decl(const std::pair<Type, AST::StorageClass>
     }
     expect(Token::Type::RIGHT_PAREN);
     if (match(Token::Type::SEMICOLON)) {
-        return AST::FunctionDecl(name.lexeme, std::move(arguments));
+        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, type_and_storage_class.second);
     }
     expect(Token::Type::LEFT_BRACE);
     return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), type_and_storage_class.second);

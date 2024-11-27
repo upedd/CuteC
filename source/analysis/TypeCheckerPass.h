@@ -22,7 +22,7 @@ struct Initial {
 struct NoInitializer {};
 struct Tentative {};
 
-using InitialValue = std::variant<Tentative, Initial, NoInitializer>
+using InitialValue = std::variant<Tentative, Initial, NoInitializer>;
 
 struct FunctionAttributes {
     bool defined;
@@ -55,7 +55,7 @@ public:
 
     void check_block(const std::vector<AST::BlockItem> &block);
 
-    void file_scope_variable_declaration(const AST::FunctionDecl &decl);
+    void file_scope_variable_declaration(const AST::VariableDecl &decl);
 
     void local_variable_declaration(const AST::VariableDecl &decl);
 

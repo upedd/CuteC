@@ -190,8 +190,8 @@ public:
             case Type::EXTERN:
                 return "Extern";
         }
-    }asdd
-sd
+    }
+
     Token(Type type, Position position, std::string lexeme = {}) : type(type), position(position),
                                                                    lexeme(std::move(lexeme)) {
     }

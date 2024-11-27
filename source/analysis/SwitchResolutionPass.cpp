@@ -56,8 +56,10 @@ void SwitchResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
 }
 
 void SwitchResolutionPass::resolve_program(AST::Program &program) {
-    for (auto &function: program.functions) {
-        resolve_function(function);
+    for (auto &declaration: program.declarations) {
+        if (std::holds_alternative<AST::FunctionDecl>(*declaration)) {
+            resolve_function(std::get<AST::FunctionDecl>(*declaration));
+        }
     }
 }
 

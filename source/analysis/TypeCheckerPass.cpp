@@ -23,7 +23,7 @@ void TypeCheckerPass::check_block(const std::vector<AST::BlockItem> &block) {
 
 void TypeCheckerPass::file_scope_variable_declaration(const AST::VariableDecl& decl) {
     InitialValue initial_value;
-    if (std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
+    if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
         initial_value = Initial(std::get<AST::ConstantExpr>(*decl.expr).value);
     } else if (!decl.expr) {
         if (decl.storage_class == AST::StorageClass::EXTERN) {
@@ -35,7 +35,7 @@ void TypeCheckerPass::file_scope_variable_declaration(const AST::VariableDecl& d
         errors.emplace_back("Non-constant initializer");
     }
 
-    bool global = decl.storage_class == AST::StorageClass::STATIC;
+    bool global = decl.storage_class != AST::StorageClass::STATIC;
 
     if (symbols.contains(decl.name)) {
         auto& old_decl = symbols[decl.name];
@@ -67,12 +67,12 @@ void TypeCheckerPass::file_scope_variable_declaration(const AST::VariableDecl& d
 
 void TypeCheckerPass::local_variable_declaration(const AST::VariableDecl& decl) {
     if (decl.storage_class == AST::StorageClass::EXTERN) {
-        if (!decl.expr) {
+        if (decl.expr) {
             errors.emplace_back("Initializer on local extern variable declaration");
         }
         if (symbols.contains(decl.name)) {
             auto old_decl = symbols[decl.name];
-            if (std::holds_alternative<IntType>(old_decl.type)) {
+            if (!std::holds_alternative<IntType>(old_decl.type)) {
                 errors.emplace_back("Function redeclared as variable");
             }
         } else {
@@ -80,13 +80,14 @@ void TypeCheckerPass::local_variable_declaration(const AST::VariableDecl& decl) 
         }
     } else if (decl.storage_class == AST::StorageClass::STATIC) {
         InitialValue initial_value;
-        if (std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
+        if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
             initial_value = Initial(std::get<AST::ConstantExpr>(*decl.expr).value);
         } else if (!decl.expr) {
             initial_value = Initial(0);
         } else {
             errors.emplace_back("Non-constant initializer on local static variable");
         }
+        symbols[decl.name] = {IntType(), StaticAttributes(initial_value, false)};
     } else {
         symbols[decl.name] = {IntType(), LocalAttributes()};
         if (decl.expr) {
@@ -130,7 +131,14 @@ void TypeCheckerPass::check_function_decl(const AST::FunctionDecl &function) {
 
 void TypeCheckerPass::check_program(const AST::Program &program) {
     for (const auto &declaration: program.declarations) {
-        check_decl(declaration);
+        std::visit(overloaded {
+            [this](const AST::VariableDecl& decl) {
+                file_scope_variable_declaration(decl);
+            },
+            [this](const AST::FunctionDecl& decl) {
+                check_function_decl(decl);
+            }
+        }, *declaration);
     }
 }
 
@@ -141,7 +149,7 @@ void TypeCheckerPass::run() {
 void TypeCheckerPass::check_decl(const AST::DeclHandle &item) {
     std::visit(overloaded{
                    [this](const AST::VariableDecl &decl) {
-                       check_variable_decl(decl);
+                       local_variable_declaration(decl);
                    },
                    [this](const AST::FunctionDecl &decl) {
                        check_function_decl(decl);
@@ -178,12 +186,6 @@ void TypeCheckerPass::check_expr(const AST::Expr &expr) {
                }, expr);
 }
 
-void TypeCheckerPass::check_variable_decl(const AST::VariableDecl &decl) {
-    symbols[decl.name] = Symbol(IntType());
-    if (decl.expr) {
-        check_expr(*decl.expr);
-    }
-}
 
 void TypeCheckerPass::check_function_call(const AST::FunctionCall &expr) {
     auto type = symbols[expr.identifier].type;
@@ -245,7 +247,7 @@ void TypeCheckerPass::check_stmt(const AST::Stmt &item) {
                        std::visit(overloaded{
                                       [this](const std::unique_ptr<AST::VariableDecl> &decl) {
                                           if (!decl) return;
-                                          check_variable_decl(*decl);
+                                          local_variable_declaration(*decl);
                                       },
                                       [this](const AST::ExprHandle &expr) {
                                           if (!expr) return;

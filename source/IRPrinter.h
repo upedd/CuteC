@@ -11,14 +11,25 @@ public:
         : program(program) {
     }
 
+    void print_static_variable(const IR::StaticVariable & item) {
+        std::cout << "StaticVariable[" << item.name << "]" << "(global=" << (item.global ? "true" : "false") << ", initial_value=" << item.initial_value << ")\n";
+    }
+
     void print() {
-        for (const auto &function: program->functions) {
-            print_function(function);
+        for (const auto &item: program->items) {
+            std::visit(overloaded {
+                [this](const IR::Function& item) {
+                    print_function(item);
+                },
+                [this](const IR::StaticVariable& item) {
+                    print_static_variable(item);
+                }
+            }, item);
         }
     }
 
     void print_function(const IR::Function &function) {
-        std::cout << "Function[" << function.name << "](";
+        std::cout << "Function[" << function.name << ", global=" << function.global << "](";
         for (const auto &param: function.params) {
             std::cout << param << " ";
         }

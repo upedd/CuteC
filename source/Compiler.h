@@ -104,7 +104,7 @@ public:
             return "";
         }
 
-        IRGenerator generator(std::move(parser.program));
+        IRGenerator generator(std::move(parser.program), &type_checker.symbols);
         generator.generate();
 
         IRPrinter ir_printer(&generator.IRProgram);
@@ -116,7 +116,7 @@ public:
         codegen::IRToAsmTreePass ir_to_asm_tree_pass(std::move(generator.IRProgram));
         ir_to_asm_tree_pass.convert();
         auto &asm_tree = ir_to_asm_tree_pass.asmProgram;
-        codegen::ReplacePseudoRegistersPass replace_pseudo_registers_pass(&asm_tree);
+        codegen::ReplacePseudoRegistersPass replace_pseudo_registers_pass(&asm_tree, &type_checker.symbols);
         replace_pseudo_registers_pass.process();
 
         int max_offset = replace_pseudo_registers_pass.offset;

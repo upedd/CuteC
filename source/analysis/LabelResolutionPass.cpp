@@ -63,13 +63,15 @@ void LabelResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
 }
 
 void LabelResolutionPass::resolve_program(AST::Program &program) {
-    for (auto &function: program.functions) {
-        resolve_function(function);
-        for (const auto &label: unresolved_labels) {
-            errors.emplace_back("Label \"" + label + "\" could not be resolved");
+    for (auto &declaration: program.declarations) {
+        if (std::holds_alternative<AST::FunctionDecl>(*declaration)) {
+            resolve_function(std::get<AST::FunctionDecl>(*declaration));
+            for (const auto &label: unresolved_labels) {
+                errors.emplace_back("Label \"" + label + "\" could not be resolved");
+            }
+            unresolved_labels.clear();
+            labels.clear();
         }
-        unresolved_labels.clear();
-        labels.clear();
     }
 }
 

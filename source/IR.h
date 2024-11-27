@@ -12,12 +12,19 @@ namespace IR {
 
     struct Function {
         std::string name;
+        bool global;
         std::vector<std::string> params;
         std::vector<Instruction> instructions;
     };
 
+    struct StaticVariable {
+        std::string name;
+        bool global;
+        int initial_value;
+    };
+
     struct Program {
-        std::vector<Function> functions;
+        std::vector<std::variant<Function, StaticVariable>> items;
     };
 
     struct Constant {

@@ -13,8 +13,8 @@ public:
     void program(const Program &program) {
         println("Program(");
         with_indent([this, &program] {
-            for (const auto &func: program.functions) {
-                function(func);
+            for (const auto &decl: program.declarations) {
+                visit_decl(*decl);
             }
         });
         println(")");
