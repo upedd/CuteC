@@ -73,6 +73,8 @@ public:
         COMMA,
         STATIC,
         EXTERN,
+        LONG,
+        LONG_CONSTANT
     };
 
     static std::string type_to_string(Type type) {
@@ -189,6 +191,10 @@ public:
                 return "Static";
             case Type::EXTERN:
                 return "Extern";
+            case Type::LONG:
+                return "Long";
+            case Type::LONG_CONSTANT:
+                return "LongConstant";
         }
     }
 

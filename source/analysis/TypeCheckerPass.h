@@ -3,18 +3,6 @@
 
 #include "../Ast.h"
 
-
-struct IntType {
-};
-
-struct FunctionType {
-    int param_count;
-};
-
-using Type = std::variant<IntType, FunctionType>;
-
-
-
 struct Initial {
     int value;
 };
@@ -39,7 +27,7 @@ struct LocalAttributes {};
 using IdentifierAttributes = std::variant<FunctionAttributes, StaticAttributes, LocalAttributes>;
 
 struct Symbol {
-    Type type;
+    AST::Type* type;
     IdentifierAttributes attributes;
 };
 
@@ -53,29 +41,28 @@ public:
     explicit TypeCheckerPass(AST::Program *program) : program(program) {
     };
 
-    void check_block(const std::vector<AST::BlockItem> &block);
+    void check_block(std::vector<AST::BlockItem> &block);
 
-    void file_scope_variable_declaration(const AST::VariableDecl &decl);
+    void file_scope_variable_declaration(AST::VariableDecl &decl);
 
-    void local_variable_declaration(const AST::VariableDecl &decl);
+    void local_variable_declaration(AST::VariableDecl &decl);
 
-    void check_function_decl(const AST::FunctionDecl &function);
+    void check_function_decl(AST::FunctionDecl &function);
 
-    void check_program(const AST::Program &program);
+    void check_program(AST::Program &program);
 
     void run();
 
-    void check_decl(const AST::DeclHandle &item);
+    void check_decl(AST::DeclHandle &item);
 
-    void check_expr(const AST::Expr &expr);
+    void check_expr(AST::Expr &expr);
 
-    void check_variable_decl(const AST::VariableDecl &decl);
 
-    void check_function_call(const AST::FunctionCall &expr);
+    void check_function_call(AST::FunctionCall &expr);
 
-    void check_variable_expr(const AST::VariableExpr &expr);
+    void check_variable_expr(AST::VariableExpr &expr);
 
-    void check_stmt(const AST::Stmt &item);
+    void check_stmt(AST::Stmt &item);
 
     std::vector<Error> errors;
 

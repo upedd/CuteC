@@ -8,20 +8,20 @@
 
 #include "../overloaded.h"
 
-void TypeCheckerPass::check_block(const std::vector<AST::BlockItem> &block) {
-    for (const auto &item: block) {
+void TypeCheckerPass::check_block(std::vector<AST::BlockItem> &block) {
+    for (auto &item: block) {
         std::visit(overloaded{
-                       [this](const AST::DeclHandle &item) {
+                       [this](AST::DeclHandle &item) {
                            check_decl(item);
                        },
-                       [this](const AST::StmtHandle &item) {
+                       [this](AST::StmtHandle &item) {
                            check_stmt(*item);
                        }
                    }, item);
     }
 }
 
-void TypeCheckerPass::file_scope_variable_declaration(const AST::VariableDecl& decl) {
+void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
     InitialValue initial_value;
     if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
         initial_value = Initial(std::get<AST::ConstantExpr>(*decl.expr).value);
@@ -65,7 +65,7 @@ void TypeCheckerPass::file_scope_variable_declaration(const AST::VariableDecl& d
     symbols[decl.name] = {IntType(), attributes};
 }
 
-void TypeCheckerPass::local_variable_declaration(const AST::VariableDecl& decl) {
+void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
     if (decl.storage_class == AST::StorageClass::EXTERN) {
         if (decl.expr) {
             errors.emplace_back("Initializer on local extern variable declaration");
@@ -96,7 +96,7 @@ void TypeCheckerPass::local_variable_declaration(const AST::VariableDecl& decl) 
     }
 }
 
-void TypeCheckerPass::check_function_decl(const AST::FunctionDecl &function) {
+void TypeCheckerPass::check_function_decl(AST::FunctionDecl &function) {
     auto type = FunctionType(function.params.size());
     bool already_defined = false;
     bool global = function.storage_class != AST::StorageClass::STATIC;
@@ -129,7 +129,7 @@ void TypeCheckerPass::check_function_decl(const AST::FunctionDecl &function) {
     }
 }
 
-void TypeCheckerPass::check_program(const AST::Program &program) {
+void TypeCheckerPass::check_program(AST::Program &program) {
     for (const auto &declaration: program.declarations) {
         std::visit(overloaded {
             [this](const AST::VariableDecl& decl) {
@@ -146,7 +146,7 @@ void TypeCheckerPass::run() {
     check_program(*program);
 }
 
-void TypeCheckerPass::check_decl(const AST::DeclHandle &item) {
+void TypeCheckerPass::check_decl(AST::DeclHandle &item) {
     std::visit(overloaded{
                    [this](const AST::VariableDecl &decl) {
                        local_variable_declaration(decl);
@@ -157,7 +157,7 @@ void TypeCheckerPass::check_decl(const AST::DeclHandle &item) {
                }, *item);
 }
 
-void TypeCheckerPass::check_expr(const AST::Expr &expr) {
+void TypeCheckerPass::check_expr(AST::Expr &expr) {
     std::visit(overloaded{
                    [this](const AST::FunctionCall &expr) {
                        check_function_call(expr);
@@ -187,7 +187,7 @@ void TypeCheckerPass::check_expr(const AST::Expr &expr) {
 }
 
 
-void TypeCheckerPass::check_function_call(const AST::FunctionCall &expr) {
+void TypeCheckerPass::check_function_call(AST::FunctionCall &expr) {
     auto type = symbols[expr.identifier].type;
     if (type.index() == Type(IntType()).index()) {
         errors.emplace_back("Variable used as function name");
@@ -200,56 +200,58 @@ void TypeCheckerPass::check_function_call(const AST::FunctionCall &expr) {
     }
 }
 
-void TypeCheckerPass::check_variable_expr(const AST::VariableExpr &expr) {
-    if (symbols[expr.name].type.index() != Type(IntType()).index()) {
+void TypeCheckerPass::check_variable_expr(AST::VariableExpr &expr) {
+    auto* symbol_type = symbols[expr.name].type;
+    if (std::holds_alternative<AST::FunctionType>(*symbol_type)) {
         errors.emplace_back("Function used as variable");
     }
+    expr.type = std::make_unique<AST::Type>(*symbol_type);
 }
 
-void TypeCheckerPass::check_stmt(const AST::Stmt &item) {
+void TypeCheckerPass::check_stmt(AST::Stmt &item) {
     std::visit(overloaded{
-                   [this](const AST::ReturnStmt &stmt) {
+                   [this](AST::ReturnStmt &stmt) {
                        check_expr(*stmt.expr);
                    },
-                   [this](const AST::ExprStmt &stmt) {
+                   [this](AST::ExprStmt &stmt) {
                        check_expr(*stmt.expr);
                    },
-                   [this](const AST::NullStmt &) {
+                   [this](AST::NullStmt &) {
                    },
-                   [this](const AST::IfStmt &stmt) {
+                   [this](AST::IfStmt &stmt) {
                        check_expr(*stmt.condition);
                        check_stmt(*stmt.then_stmt);
                        if (stmt.else_stmt) {
                            check_stmt(*stmt.else_stmt);
                        }
                    },
-                   [this](const AST::LabeledStmt &stmt) {
+                   [this](AST::LabeledStmt &stmt) {
                        check_stmt(*stmt.stmt);
                    },
-                   [this](const AST::GoToStmt &) {
+                   [this](AST::GoToStmt &) {
                    },
-                   [this](const AST::CompoundStmt &stmt) {
+                   [this](AST::CompoundStmt &stmt) {
                        check_block(stmt.body);
                    },
-                   [this](const AST::BreakStmt &) {
+                   [this](AST::BreakStmt &) {
                    },
-                   [this](const AST::ContinueStmt &) {
+                   [this](AST::ContinueStmt &) {
                    },
-                   [this](const AST::WhileStmt &stmt) {
+                   [this](AST::WhileStmt &stmt) {
                        check_expr(*stmt.condition);
                        check_stmt(*stmt.body);
                    },
-                   [this](const AST::DoWhileStmt &stmt) {
+                   [this](AST::DoWhileStmt &stmt) {
                        check_expr(*stmt.condition);
                        check_stmt(*stmt.body);
                    },
-                   [this](const AST::ForStmt &stmt) {
+                   [this](AST::ForStmt &stmt) {
                        std::visit(overloaded{
-                                      [this](const std::unique_ptr<AST::VariableDecl> &decl) {
+                                      [this](std::unique_ptr<AST::VariableDecl> &decl) {
                                           if (!decl) return;
                                           local_variable_declaration(*decl);
                                       },
-                                      [this](const AST::ExprHandle &expr) {
+                                      [this](AST::ExprHandle &expr) {
                                           if (!expr) return;
                                           check_expr(*expr);
                                       }
@@ -262,14 +264,14 @@ void TypeCheckerPass::check_stmt(const AST::Stmt &item) {
                        }
                        check_stmt(*stmt.body);
                    },
-                   [this](const AST::SwitchStmt &stmt) {
+                   [this](AST::SwitchStmt &stmt) {
                        check_expr(*stmt.expr);
                        check_stmt(*stmt.body);
                    },
-                   [this](const AST::CaseStmt &stmt) {
+                   [this](AST::CaseStmt &stmt) {
                        check_stmt(*stmt.stmt);
                    },
-                   [this](const AST::DefaultStmt &stmt) {
+                   [this](AST::DefaultStmt &stmt) {
                        check_stmt(*stmt.stmt);
                    }
                }, item);

@@ -1,30 +1,46 @@
 #include "Parser.h"
 
 #include "Token.h"
+#include "Token.h"
 #include "analysis/TypeCheckerPass.h"
 
-
-static bool is_specifier(Token::Type type) {
-    return type == Token::Type::STATIC || type == Token::Type::EXTERN || type == Token::Type::INT;
+static bool is_type_specifier(Token::Type type) {
+    return type == Token::Type::INT || type == Token::Type::LONG;
 }
 
-std::pair<Type, AST::StorageClass> Parser::parse_type_and_storage_class() {
-    std::vector<Type> types;
+static bool is_specifier(Token::Type type) {
+    return type == Token::Type::STATIC || type == Token::Type::EXTERN || is_type_specifier(type);
+}
+
+
+AST::Type Parser::parse_type(const std::vector<Token::Type>& types) {
+    // mess
+    if (types == std::vector { Token::Type::INT }) {
+        return AST::IntType {};
+    }
+    if (types == std::vector { Token::Type::LONG } || types == std::vector { Token::Type::INT, Token::Type::LONG } || types == std::vector { Token::Type::LONG, Token::Type::INT }) {
+        return AST::LongType {};
+    }
+    errors.emplace_back("Invalid Type Specifier");
+    // how to handle
+}
+
+std::pair<AST::Type, AST::StorageClass> Parser::parse_type_and_storage_class() {
+    std::vector<Token::Type> types;
     std::vector<AST::StorageClass> storage_classes;
     while (is_specifier(peek().type)) {
         auto specifier = consume();
-        if (specifier.type == Token::Type::INT) {
-            types.emplace_back(IntType());
+        if (is_type_specifier(specifier.type)) {
+            types.emplace_back(specifier.type);
         } else if (specifier.type == Token::Type::EXTERN) {
             storage_classes.emplace_back(AST::StorageClass::EXTERN);
         } else if (specifier.type == Token::Type::STATIC) {
             storage_classes.emplace_back(AST::StorageClass::STATIC);
         }
     }
+    auto type = parse_type(types);
 
-    if (types.size() != 1) {
-        errors.emplace_back("Invalid declaration type");
-    }
+
     if (storage_classes.size() > 1) {
         errors.emplace_back("Invalid declaration storage class");
     }
@@ -33,7 +49,7 @@ std::pair<Type, AST::StorageClass> Parser::parse_type_and_storage_class() {
         storage_classes.emplace_back(AST::StorageClass::NONE);
     }
     // TODO: should continue with error!
-    return {types[0], storage_classes[0]};
+    return  {std::move(type), storage_classes[0]};
 }
 
 
@@ -47,23 +63,27 @@ void Parser::parse() {
     }
 }
 
-AST::FunctionDecl Parser::function_decl(const std::pair<Type, AST::StorageClass>& type_and_storage_class) {
+AST::FunctionDecl Parser::function_decl(std::pair<AST::Type, AST::StorageClass>& type_and_storage_class) {
     Token name = expect(Token::Type::IDENTIFIER);
     expect(Token::Type::LEFT_PAREN);
     std::vector<std::string> arguments;
     if (!match(Token::Type::VOID)) {
         do {
-            expect(Token::Type::INT);
+            std::vector<Token::Type> types;
+            while (is_type_specifier(peek().type)) {
+                types.emplace_back(consume().type);
+            }
+            std::get<AST::FunctionType>(type_and_storage_class.first).parameters_types.emplace_back(std::make_unique<AST::Type>(parse_type(types)));
             auto argument = expect(Token::Type::IDENTIFIER);
             arguments.emplace_back(argument.lexeme);
         } while (match(Token::Type::COMMA));
     }
     expect(Token::Type::RIGHT_PAREN);
     if (match(Token::Type::SEMICOLON)) {
-        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, type_and_storage_class.second);
+        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, std::move(type_and_storage_class.first), type_and_storage_class.second);
     }
     expect(Token::Type::LEFT_BRACE);
-    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), type_and_storage_class.second);
+    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), std::move(type_and_storage_class.first), type_and_storage_class.second);
 }
 
 
@@ -83,14 +103,14 @@ AST::DeclHandle Parser::declaration() {
     return std::make_unique<AST::Declaration>(variable_declaration(type_and_storage_class));
 }
 
-AST::VariableDecl Parser::variable_declaration(const std::pair<Type, AST::StorageClass>& type_and_storage_class) {
+AST::VariableDecl Parser::variable_declaration(std::pair<AST::Type, AST::StorageClass>& type_and_storage_class) {
     auto identifier = expect(Token::Type::IDENTIFIER);
     AST::ExprHandle expr;
     if (match(Token::Type::EQUAL)) {
         expr = expression();
     }
     expect(Token::Type::SEMICOLON);
-    return AST::VariableDecl(identifier.lexeme, std::move(expr), type_and_storage_class.second);
+    return AST::VariableDecl(identifier.lexeme, std::move(expr), std::move(type_and_storage_class.first), type_and_storage_class.second);
 }
 
 AST::StmtHandle Parser::labeled_stmt(const Token &identifier) {
@@ -136,7 +156,9 @@ AST::StmtHandle Parser::for_stmt() {
     expect(Token::Type::LEFT_PAREN);
     std::variant<std::unique_ptr<AST::VariableDecl>, AST::ExprHandle> init;
     if (match(Token::Type::INT)) {
-        init = std::make_unique<AST::VariableDecl>(variable_declaration({IntType(), AST::StorageClass::NONE}));
+        auto decl = declaration();
+        // mess
+        init = std::make_unique<AST::VariableDecl>(std::get<AST::VariableDecl>(std::move(*decl)));
     } else if (!match(Token::Type::SEMICOLON)) {
         init = expression();
         expect(Token::Type::SEMICOLON);
@@ -437,12 +459,36 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
     }
 }
 
+AST::ExprHandle Parser::constant(const Token& token) {
+    // mess
+    std::string value = token.lexeme;
+    if (token.type == Token::Type::LONG) {
+        try {
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
+        } catch (const std::out_of_range&) {
+            errors.emplace_back("Constant too large!");
+            // graceful errors?
+        }
+    }
+
+    try {
+        return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(std::stoi(token.lexeme))));
+    } catch (const std::out_of_range&) {
+        try {
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
+        } catch (const std::out_of_range&) {
+            errors.emplace_back("Constant too large!");
+            // graceful errors?
+        }
+    }
+}
+
 AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
     if (token.type == Token::Type::CONSTANT) {
-        return std::make_unique<AST::Expr>(AST::ConstantExpr(std::stol(token.lexeme)));
+        return constant(token);
     }
 
     if (token.type == Token::Type::LEFT_PAREN) {
@@ -506,6 +552,17 @@ AST::ExprHandle Parser::factor() {
     if (token.type == Token::Type::MINUS_MINUS) {
         auto expr = factor();
         return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_DECREMENT, std::move(expr)));
+    }
+
+    if (token.type == Token::Type::LEFT_PAREN) {
+        std::vector<Token::Type> types;
+        while(is_type_specifier(peek().type)) {
+            types.emplace_back(peek().type);
+        }
+        auto type = parse_type(types);
+        expect(Token::Type::RIGHT_PAREN);
+        auto expr = factor();
+        return std::make_unique<AST::Expr>(AST::CastExpr(std::make_unique<AST::Type>(std::move(type)), std::move(expr)));
     }
 
     errors.emplace_back(std::format("Expected an expression at {}:{}", token.position.line, token.position.offset));

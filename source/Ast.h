@@ -14,7 +14,7 @@ namespace AST {
         struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct
         DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
-        AssigmentExpr, struct ConditionalExpr, struct FunctionCall>;
+        AssigmentExpr, struct ConditionalExpr, struct FunctionCall, struct CastExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
 
@@ -29,9 +29,21 @@ namespace AST {
         EXTERN
     };
 
+    using Type = std::variant<struct EmptyType {}, struct IntType, struct LongType, struct FunctionType>;
+    using TypeHandle = std::unique_ptr<Type>;
+
+    struct IntType {};
+    struct LongType {};
+    struct FunctionType {
+        std::vector<TypeHandle> parameters_types;
+        TypeHandle return_type;
+    };
+
+
     struct VariableDecl {
         std::string name;
         ExprHandle expr;
+        TypeHandle type;
         StorageClass storage_class;
     };
 
@@ -39,6 +51,7 @@ namespace AST {
         std::string name;
         std::vector<std::string> params;
         std::optional<std::vector<BlockItem> > body;
+        TypeHandle type;
         StorageClass storage_class;
     };
 
@@ -59,8 +72,19 @@ namespace AST {
     struct NullStmt {
     };
 
-    struct ConstantExpr {
+    struct ConstInt {
         int value;
+    };
+
+    struct ConstLong {
+        std::int64_t value;
+    };
+
+    using Const = std::variant<ConstInt, ConstLong>;
+
+    struct ConstantExpr {
+        Const constant;
+        TypeHandle type;
     };
 
     struct UnaryExpr {
@@ -76,6 +100,7 @@ namespace AST {
 
         Kind kind;
         ExprHandle expr;
+        TypeHandle type;
     };
 
     struct BinaryExpr {
@@ -103,10 +128,12 @@ namespace AST {
         Kind kind;
         ExprHandle left;
         ExprHandle right;
+        TypeHandle type;
     };
 
     struct VariableExpr {
         std::string name;
+        TypeHandle type;
     };
 
     struct AssigmentExpr {
@@ -128,6 +155,7 @@ namespace AST {
         Operator op;
         ExprHandle left;
         ExprHandle right;
+        TypeHandle type;
     };
 
     struct IfStmt {
@@ -140,6 +168,7 @@ namespace AST {
         ExprHandle condition;
         ExprHandle then_expr;
         ExprHandle else_expr;
+        TypeHandle type;
     };
 
     struct LabeledStmt {
@@ -205,7 +234,15 @@ namespace AST {
     struct FunctionCall {
         std::string identifier;
         std::vector<ExprHandle> arguments;
+        TypeHandle type;
     };
+
+    struct CastExpr {
+        TypeHandle target;
+        ExprHandle expr;
+        TypeHandle type;
+    };
+
 }
 
 #endif //AST_H

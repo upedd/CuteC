@@ -8,13 +8,20 @@ void Lexer::make_constant() {
     while (is_digit(peek())) {
         consume();
     }
+    bool is_long = false;
+
+    if (peek() == 'l' || peek() == 'L') {
+        consume();
+        is_long = true;
+    }
+
     if (is_valid_identifier(peek())) {
         errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line,
                                         m_linepos));
     }
 
-    tokens.emplace_back(Token::Type::CONSTANT, Token::Position(m_line, m_linepos),
-                        m_source.substr(m_start, m_pos - m_start));
+    tokens.emplace_back(is_long ? Token::Type::LONG_CONSTANT : Token::Type::CONSTANT, Token::Position(m_line, m_linepos),
+                        m_source.substr(m_start, m_pos - m_start - is_long));
 }
 
 void Lexer::make_keyword_or_identifier() {
@@ -58,6 +65,8 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::EXTERN);
     } else if (lexeme == "static") {
         make_token(Token::Type::STATIC);
+    } else if (lexeme == "long") {
+        make_token(Token::Type::LONG);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }

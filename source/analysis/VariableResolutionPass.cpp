@@ -134,6 +134,9 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                    [this](AST::FunctionCall &expr) {
                        resolve_function_call(expr);
                    },
+                    [this](AST::CastExpr& expr) {
+                        resolve_expression(*expr.expr);
+                    },
                    [this](auto &) {
                    }
                }, expr);

@@ -19,17 +19,19 @@ public:
     explicit Parser(std::vector<Token> tokens) : m_tokens(std::move(tokens)) {
     }
 
-    std::pair<Type, AST::StorageClass> parse_type_and_storage_class();
+    AST::Type parse_type(const std::vector<Token::Type> &types);
+
+    std::pair<AST::Type, AST::StorageClass> parse_type_and_storage_class();
 
     void parse();
 
-    AST::FunctionDecl function_decl(const std::pair<Type, AST::StorageClass> &type_and_storage_class);
+    AST::FunctionDecl function_decl(std::pair<AST::Type, AST::StorageClass> &type_and_storage_class);
 
     AST::BlockItem block_item();
 
     AST::DeclHandle declaration();
 
-    AST::VariableDecl variable_declaration(const std::pair<Type, AST::StorageClass> &type_and_storage_class);
+    AST::VariableDecl variable_declaration(std::pair<AST::Type, AST::StorageClass> &type_and_storage_class);
 
     AST::StmtHandle labeled_stmt(const Token &identifer);
 
@@ -74,6 +76,8 @@ public:
     AST::AssigmentExpr::Operator compound_operator();
 
     AST::BinaryExpr::Kind binary_operator();
+
+    AST::ExprHandle constant(const Token &token);
 
     AST::ExprHandle primary(const Token &token);
 
