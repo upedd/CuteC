@@ -67,23 +67,24 @@ AST::FunctionDecl Parser::function_decl(std::pair<AST::Type, AST::StorageClass>&
     Token name = expect(Token::Type::IDENTIFIER);
     expect(Token::Type::LEFT_PAREN);
     std::vector<std::string> arguments;
+    std::vector<AST::TypeHandle> argument_types;
     if (!match(Token::Type::VOID)) {
         do {
             std::vector<Token::Type> types;
             while (is_type_specifier(peek().type)) {
                 types.emplace_back(consume().type);
             }
-            std::get<AST::FunctionType>(type_and_storage_class.first).parameters_types.emplace_back(std::make_unique<AST::Type>(parse_type(types)));
+            argument_types.emplace_back(parse_type(types));
             auto argument = expect(Token::Type::IDENTIFIER);
             arguments.emplace_back(argument.lexeme);
         } while (match(Token::Type::COMMA));
     }
     expect(Token::Type::RIGHT_PAREN);
     if (match(Token::Type::SEMICOLON)) {
-        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, std::move(type_and_storage_class.first), type_and_storage_class.second);
+        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, AST::TypeHandle(AST::FunctionType {std::move(argument_types), std::move(type_and_storage_class.first) }), type_and_storage_class.second);
     }
     expect(Token::Type::LEFT_BRACE);
-    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), std::move(type_and_storage_class.first), type_and_storage_class.second);
+    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), AST::TypeHandle(AST::FunctionType {std::move(argument_types), std::move(type_and_storage_class.first) }), type_and_storage_class.second);
 }
 
 
@@ -155,10 +156,16 @@ AST::StmtHandle Parser::do_while_stmt() {
 AST::StmtHandle Parser::for_stmt() {
     expect(Token::Type::LEFT_PAREN);
     std::variant<std::unique_ptr<AST::VariableDecl>, AST::ExprHandle> init;
-    if (match(Token::Type::INT)) {
+    if (is_specifier(peek().type)) {
         auto decl = declaration();
+
+
+        auto var_decl = std::get<AST::VariableDecl>(std::move(*decl));
+        if (var_decl.storage_class != AST::StorageClass::NONE) {
+            errors.emplace_back("For loop initializer must have automatic storage duration.");
+        }
         // mess
-        init = std::make_unique<AST::VariableDecl>(std::get<AST::VariableDecl>(std::move(*decl)));
+        init = std::make_unique<AST::VariableDecl>(std::move(var_decl));
     } else if (!match(Token::Type::SEMICOLON)) {
         init = expression();
         expect(Token::Type::SEMICOLON);
@@ -462,7 +469,7 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
 AST::ExprHandle Parser::constant(const Token& token) {
     // mess
     std::string value = token.lexeme;
-    if (token.type == Token::Type::LONG) {
+    if (token.type == Token::Type::LONG_CONSTANT) {
         try {
             return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
         } catch (const std::out_of_range&) {
@@ -487,11 +494,21 @@ AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
-    if (token.type == Token::Type::CONSTANT) {
+    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT) {
         return constant(token);
     }
-
+    // TODO: correct?
     if (token.type == Token::Type::LEFT_PAREN) {
+        if (is_type_specifier(peek().type)) {
+            std::vector<Token::Type> types;
+            while(is_type_specifier(peek().type)) {
+                types.emplace_back(consume().type);
+            }
+            auto type = parse_type(types);
+            expect(Token::Type::RIGHT_PAREN);
+            auto expr = factor();
+            return std::make_unique<AST::Expr>(AST::CastExpr(type, std::move(expr)));
+        }
         auto expr = expression();
         expect(Token::Type::RIGHT_PAREN);
         return expr;
@@ -552,17 +569,6 @@ AST::ExprHandle Parser::factor() {
     if (token.type == Token::Type::MINUS_MINUS) {
         auto expr = factor();
         return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_DECREMENT, std::move(expr)));
-    }
-
-    if (token.type == Token::Type::LEFT_PAREN) {
-        std::vector<Token::Type> types;
-        while(is_type_specifier(peek().type)) {
-            types.emplace_back(peek().type);
-        }
-        auto type = parse_type(types);
-        expect(Token::Type::RIGHT_PAREN);
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::CastExpr(std::make_unique<AST::Type>(std::move(type)), std::move(expr)));
     }
 
     errors.emplace_back(std::format("Expected an expression at {}:{}", token.position.line, token.position.offset));

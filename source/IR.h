@@ -5,10 +5,12 @@
 #include <variant>
 #include <vector>
 
+#include "analysis/TypeCheckerPass.h"
+
 namespace IR {
     using Value = std::variant<struct Constant, struct Variable>;
     using Instruction = std::variant<struct Return, struct Unary, struct Binary, struct Copy, struct Jump, struct
-        JumpIfZero, struct JumpIfNotZero, struct Label, struct Call>;
+        JumpIfZero, struct JumpIfNotZero, struct Label, struct Call, struct SignExtend, struct Truncate>;
 
     struct Function {
         std::string name;
@@ -20,7 +22,8 @@ namespace IR {
     struct StaticVariable {
         std::string name;
         bool global;
-        int initial_value;
+        Initial initial;
+        AST::TypeHandle type;
     };
 
     struct Program {
@@ -28,7 +31,7 @@ namespace IR {
     };
 
     struct Constant {
-        int value;
+        AST::Const constant;
     };
 
     struct Variable {
@@ -109,6 +112,16 @@ namespace IR {
     struct Call {
         std::string name;
         std::vector<Value> arguments;
+        Value destination;
+    };
+
+    struct SignExtend {
+        Value source;
+        Value destination;
+    };
+
+    struct Truncate {
+        Value source;
         Value destination;
     };
 }

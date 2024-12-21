@@ -1,5 +1,6 @@
 #include "SwitchResolutionPass.h"
 
+#include "TypeCheckerPass.h"
 #include "../overloaded.h"
 
 void SwitchResolutionPass::resolve_function(AST::FunctionDecl &function) {
@@ -67,6 +68,15 @@ void SwitchResolutionPass::run() {
     resolve_program(*program);
 }
 
+static void convert_const(AST::Const& constant, AST::TypeHandle& type) {
+    if (std::holds_alternative<AST::IntType>(*type) && std::holds_alternative<AST::ConstLong>(constant)) {
+        constant = AST::ConstInt(std::get<AST::ConstLong>(constant).value);
+    } else if (std::holds_alternative<AST::LongType>(*type) && std::holds_alternative<AST::ConstInt>(constant)) {
+        constant = AST::ConstLong(std::get<AST::ConstInt>(constant).value);
+    }
+
+}
+
 void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {
     if (switches.empty()) {
         errors.emplace_back("Case statement outside of switch block");
@@ -76,8 +86,10 @@ void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {
         errors.emplace_back("Unsupported expression as case value");
         return;
     }
-    int value = std::get<AST::ConstantExpr>(*stmt.value).value;
     auto &current_switch = *switches.back();
+    auto expr_type = get_type(current_switch.expr);
+    auto& value = std::get<AST::ConstantExpr>(*stmt.value).constant;
+    convert_const(value, expr_type);
     if (current_switch.cases.contains(value)) {
         errors.emplace_back("Duplicate case in switch");
         return;

@@ -4,7 +4,25 @@
 #include <vector>
 #include <variant>
 
+#include "analysis/TypeCheckerPass.h"
+
 namespace ASM {
+    enum class Type {
+        LongWord,
+        QuadWord,
+    };
+
+    struct ObjectSymbol {
+        Type type;
+        bool is_static;
+    };
+
+    struct FunctionSymbol {
+        bool defined;
+    };
+
+    using Symbol = std::variant<ObjectSymbol, FunctionSymbol>;
+
     enum class ConditionCode {
         E,
         NE,
@@ -15,9 +33,9 @@ namespace ASM {
     };
 
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack, struct Data>;
-    using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct AllocateStack, struct Binary, struct
-        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label, struct DeallocateStack,
-        struct Push, struct Call>;
+    using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct Binary, struct
+        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
+        struct Push, struct Call, struct Movsx>;
 
     struct Function {
         std::string name;
@@ -29,7 +47,8 @@ namespace ASM {
     struct StaticVariable {
         std::string name;
         bool global;
-        int initial_value;
+        int alignment;
+        Initial initial_value;
     };
 
     struct Program {
@@ -37,7 +56,7 @@ namespace ASM {
     };
 
     struct Imm {
-        int value;
+        std::int64_t value;
     };
 
     struct Reg {
@@ -51,6 +70,7 @@ namespace ASM {
             R9,
             R10,
             R11,
+            SP
         };
 
         Name name;
@@ -69,6 +89,7 @@ namespace ASM {
     };
 
     struct Mov {
+        Type type;
         Operand src;
         Operand dst;
     };
@@ -81,13 +102,9 @@ namespace ASM {
             Neg,
             Not
         };
-
         Operator op;
+        Type type;
         Operand operand;
-    };
-
-    struct AllocateStack {
-        int size;
     };
 
     struct Binary {
@@ -103,18 +120,22 @@ namespace ASM {
         };
 
         Operator op;
+        Type type;
         Operand left;
         Operand right;
     };
 
     struct Idiv {
+        Type type;
         Operand divisor;
     };
 
     struct Cdq {
+        Type type;
     };
 
     struct Cmp {
+        Type type;
         Operand left;
         Operand right;
     };
@@ -137,16 +158,17 @@ namespace ASM {
         std::string name;
     };
 
-    struct DeallocateStack {
-        int size;
-    };
-
     struct Push {
         Operand value;
     };
 
     struct Call {
         std::string name;
+    };
+
+    struct Movsx {
+        Operand source;
+        Operand destination;
     };
 }
 

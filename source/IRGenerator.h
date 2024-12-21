@@ -27,11 +27,19 @@ public:
             if (std::holds_alternative<StaticAttributes>(symbol.attributes)) {
                 auto& attributes = std::get<StaticAttributes>(symbol.attributes);
                 std::visit(overloaded {
-                    [this, &name, &attributes](const Initial& init) {
-                        IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, init.value));
+                    [this, &name, &attributes, &symbol](const Initial& init) {
+                        IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, init, *symbol.type));
                     },
-                    [this, &attributes, &name](const Tentative& init) {
-                        IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, 0));
+                    [this, &attributes, &name, &symbol](const Tentative& init) {
+                        std::visit(overloaded {
+                            [this, &name, &attributes, &symbol](const AST::IntType&) {
+                                IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialInt(0), *symbol.type));
+                            },
+                            [this, &name, &attributes, &symbol](const AST::LongType&) {
+                                IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialLong(0), *symbol.type));
+                            },
+                            [](const auto&) {}
+                        }, *symbol.type);
                     },
                     [](const NoInitializer&) {}
                 }, attributes.initial_value);
@@ -47,7 +55,7 @@ public:
         }
 
         // implicitly add return 0 to the end of the function.
-        instructions.emplace_back(IR::Return(IR::Constant(0)));
+        instructions.emplace_back(IR::Return(IR::Constant(AST::ConstInt(0))));
 
         auto& attributes = std::get<FunctionAttributes>(symbols->at(function.name).attributes);
 
@@ -206,7 +214,8 @@ public:
         std::vector<IR::Instruction> instructions;
         auto result = gen_expr(*stmt.expr, instructions);
         for (const auto &[value, label]: stmt.cases) {
-            auto cmp = IR::Variable(make_temporary());
+            auto cmp = make_variable(get_type(stmt.expr));
+            // TODO: check!
             instructions.emplace_back(IR::Binary(IR::Binary::Operator::EQUAL, result, IR::Constant(value), cmp));
             instructions.emplace_back(IR::JumpIfNotZero(cmp, label));
         }
@@ -288,7 +297,7 @@ public:
         auto end_label = make_label("end");
 
         auto condition = gen_expr(*expr.condition, instructions);
-        auto result = IR::Variable(make_temporary());
+        auto result = make_variable(expr.type);
         instructions.emplace_back(IR::JumpIfZero(condition, else_label));
         auto then_result = gen_expr(*expr.then_expr, instructions);
         instructions.emplace_back(IR::Copy(then_result, result));
@@ -305,9 +314,23 @@ public:
         for (const auto &arg: expr.arguments) {
             arguments.emplace_back(gen_expr(*arg, instructions));
         }
-        auto result = IR::Variable(make_temporary());
+        auto result = make_variable(expr.type);
         instructions.emplace_back(IR::Call(expr.identifier, std::move(arguments), result));
         return result;
+    }
+
+    IR::Value gen_cast_expr(const AST::CastExpr & expr, std::vector<IR::Instruction> & instructions) {
+        auto res = gen_expr(*expr.expr, instructions);
+        if (get_type(expr.expr)->index() == expr.target->index()) {
+            return res;
+        }
+        auto destination = make_variable(expr.type);
+        if (std::holds_alternative<AST::LongType>(*expr.target)) {
+            instructions.emplace_back(IR::SignExtend(res, destination));
+        } else {
+            instructions.emplace_back(IR::Truncate(res, destination));
+        }
+        return destination;
     }
 
     IR::Value gen_expr(const AST::Expr &expr, std::vector<IR::Instruction> &instructions) {
@@ -332,12 +355,21 @@ public:
                               },
                               [this, &instructions](const AST::FunctionCall &expr) {
                                   return gen_function_call(expr, instructions);
+                              },
+                              [this, &instructions](const AST::CastExpr &expr) {
+                                  return gen_cast_expr(expr, instructions);
                               }
                           }, expr);
     }
 
+    IR::Value make_variable(AST::TypeHandle type) {
+        auto name = make_temporary();
+        (*symbols)[name] = Symbol {type, LocalAttributes{}};
+        return IR::Variable(name);
+    }
+
     IR::Value gen_constant(const AST::ConstantExpr &expr) {
-        return IR::Constant(expr.value);
+        return IR::Constant(expr.constant);
     }
 
     IR::Value gen_unary(const AST::UnaryExpr &expr, std::vector<IR::Instruction> &instructions) {
@@ -354,26 +386,27 @@ public:
         auto source = gen_expr(*expr.expr, instructions);
         // TODO: refactor!
         if (expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT) {
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(1), source));
+            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
             return source;
         }
         if (expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT) {
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(-1), source));
+            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(-1)), source));
             return source;
         }
+        // TODO: check!
         if (expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT) {
-            auto temp = IR::Variable(make_temporary());
+            auto temp = make_variable(expr.type);
             instructions.emplace_back(IR::Copy(source, temp));
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(1), source));
+            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
             return temp;
         }
         if (expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT) {
-            auto temp = IR::Variable(make_temporary());
+            auto temp = make_variable(expr.type);
             instructions.emplace_back(IR::Copy(source, temp));
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(-1), source));
+            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(-1)), source));
             return temp;
         }
-        auto destination = IR::Variable(make_temporary());
+        auto destination = make_variable(expr.type);
         instructions.emplace_back(IR::Unary(convert_op(expr.kind), source, destination));
         return destination;
     }
@@ -424,7 +457,7 @@ public:
 
         auto left = gen_expr(*expr.left, instructions);
         auto right = gen_expr(*expr.right, instructions);
-        auto destination = IR::Variable(make_temporary());
+        auto destination = make_variable(expr.type);
         instructions.emplace_back(IR::Binary(convert_op(expr.kind), left, right, destination));
 
         return destination;
@@ -438,11 +471,11 @@ public:
         instructions.emplace_back(IR::JumpIfZero(left, false_label));
         auto right = gen_expr(*expr.right, instructions);
         instructions.emplace_back(IR::JumpIfZero(right, false_label));
-        auto result = IR::Variable(make_temporary());
-        instructions.emplace_back(IR::Copy(IR::Constant(1), result));
+        auto result = make_variable(expr.type);
+        instructions.emplace_back(IR::Copy(IR::Constant(AST::ConstInt(1)), result));
         instructions.emplace_back(IR::Jump(end_label));
         instructions.emplace_back(IR::Label(false_label));
-        instructions.emplace_back(IR::Copy(IR::Constant(0), result));
+        instructions.emplace_back(IR::Copy(IR::Constant(AST::ConstInt(0)), result));
         instructions.emplace_back(IR::Label(end_label));
         return result;
     }
@@ -455,11 +488,11 @@ public:
         instructions.emplace_back(IR::JumpIfNotZero(left, true_label));
         auto right = gen_expr(*expr.right, instructions);
         instructions.emplace_back(IR::JumpIfNotZero(right, true_label));
-        auto result = IR::Variable(make_temporary());
-        instructions.emplace_back(IR::Copy(IR::Constant(0), result));
+        auto result = make_variable(expr.type);
+        instructions.emplace_back(IR::Copy(IR::Constant(AST::ConstInt(0)), result));
         instructions.emplace_back(IR::Jump(end_label));
         instructions.emplace_back(IR::Label(true_label));
-        instructions.emplace_back(IR::Copy(IR::Constant(1), result));
+        instructions.emplace_back(IR::Copy(IR::Constant(AST::ConstInt(1)), result));
         instructions.emplace_back(IR::Label(end_label));
         return result;
     }
@@ -497,15 +530,17 @@ public:
         };
 
         auto result = gen_expr(*expr.right, instructions);
-        auto lhs = IR::Variable(std::get<AST::VariableExpr>(*expr.left).name);
+        auto lhs = gen_expr(*expr.left, instructions);
+        // mess?
+        auto destination = std::holds_alternative<AST::VariableExpr>(*expr.left) ? std::get<AST::VariableExpr>(*expr.left).name : std::get<AST::VariableExpr>(*std::get<AST::CastExpr>(*expr.left).expr).name;
         if (expr.op != AST::AssigmentExpr::Operator::NONE) {
-            //auto temp = IR::Variable(make_temporary());
-            instructions.emplace_back(IR::Binary(convert_op(expr.op), lhs, result, lhs));
-            //result = temp;
+            auto temp = make_variable(get_type(expr.left));
+            instructions.emplace_back(IR::Binary(convert_op(expr.op), lhs, result, temp));
+            instructions.emplace_back(IR::Copy(temp, IR::Variable(destination)));
         } else {
-            instructions.emplace_back(IR::Copy(result, lhs));
+            instructions.emplace_back(IR::Copy(result, IR::Variable(destination)));
         }
-        return lhs;
+        return IR::Variable(destination);
     }
 
     std::string make_temporary() {

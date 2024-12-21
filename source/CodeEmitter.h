@@ -60,6 +60,31 @@ public:
         }
     }
 
+    static std::int64_t get_initial_value(const Initial& initial) {
+        return std::visit(overloaded {
+            [](const auto& init) -> std::int64_t {
+                return init.value;
+            }
+        }, initial);
+    }
+
+    std::string type_suffix(ASM::Type type) {
+        switch (type) {
+            case ASM::Type::LongWord:
+                return "l";
+            case ASM::Type::QuadWord:
+                return "q";
+        }
+    }
+    int type_reg_size(ASM::Type type) {
+        switch (type) {
+            case ASM::Type::LongWord:
+                return 4;
+            case ASM::Type::QuadWord:
+                return 8;
+        }
+    }
+
     void emit_static_variable(const ASM::StaticVariable & variable) {
         if (variable.global) {
 #if __APPLE__
@@ -69,21 +94,29 @@ public:
 #endif
         }
 
-        if (variable.initial_value == 0) {
+        if (get_initial_value(variable.initial_value) == 0) {
             assembly += "    .bss\n";
         } else {
             assembly += "    .data\n";
         }
-        assembly += "    .balign 4\n";
+        assembly += "    .balign " + std::to_string(variable.alignment) + " \n";
 #if __APPLE__
         assembly += "_" + variable.name + ":\n";
 #else
         assembly += variable.name + ":\n";
 #endif
-        if (variable.initial_value == 0) {
-            assembly += "    .zero 4\n";
+        if (get_initial_value(variable.initial_value) == 0) {
+            if (std::holds_alternative<InitialInt>(variable.initial_value)) {
+                assembly += "    .zero 4\n";
+            } else {
+                assembly += "    .zero 8\n";
+            }
         } else {
-            assembly += "    .long " + std::to_string(variable.initial_value) + "\n";
+            if (std::holds_alternative<InitialInt>(variable.initial_value)) {
+                assembly += "    .long " + std::to_string(std::get<InitialInt>(variable.initial_value).value) + "\n";
+            } else {
+                assembly += "    .quad " + std::to_string(std::get<InitialLong>(variable.initial_value).value) + "\n";
+            }
         }
     }
 
@@ -97,13 +130,18 @@ public:
 #endif
     }
 
-    void emit_deallocate_stack(const ASM::DeallocateStack &ins) {
-        assembly += "    addq $" + std::to_string(ins.size) + ", %rsp\n";
-    }
 
     void emit_push(const ASM::Push &ins) {
         assembly += "    pushq ";
         emit_operand(ins.value, 8);
+        assembly += "\n";
+    }
+
+    void emit_movsx(const ASM::Movsx & ins) {
+        assembly += "    movslq ";
+        emit_operand(ins.source, 4);
+        assembly += ", ";
+        emit_operand(ins.destination, 8);
         assembly += "\n";
     }
 
@@ -117,9 +155,6 @@ public:
                        },
                        [this](const ASM::Unary &ins) {
                            emit_unary(ins);
-                       },
-                       [this](const ASM::AllocateStack &ins) {
-                           emit_allocate_stack(ins);
                        },
                        [this](const ASM::Binary &ins) {
                            emit_binary(ins);
@@ -148,20 +183,20 @@ public:
                        [this](const ASM::Call &ins) {
                            emit_call(ins);
                        },
-                       [this](const ASM::DeallocateStack &ins) {
-                           emit_deallocate_stack(ins);
-                       },
                        [this](const ASM::Push &ins) {
                            emit_push(ins);
+                       },
+                       [this](const ASM::Movsx& ins) {
+                           emit_movsx(ins);
                        }
                    }, instruction);
     }
 
     void emit_mov(const ASM::Mov &ins) {
-        assembly += "    movl ";
-        emit_operand(ins.src);
+        assembly += "    mov" + type_suffix(ins.type) + " ";
+        emit_operand(ins.src, type_reg_size(ins.type));
         assembly += ", ";
-        emit_operand(ins.dst);
+        emit_operand(ins.dst, type_reg_size(ins.type));
         assembly += "\n";
     }
 
@@ -174,72 +209,75 @@ public:
     void emit_unary(const ASM::Unary &ins) {
         switch (ins.op) {
             case ASM::Unary::Operator::Not:
-                assembly += "    notl ";
+                assembly += "    not";
                 break;
             case ASM::Unary::Operator::Neg:
-                assembly += "    negl ";
+                assembly += "    neg";
                 break;
         }
-        emit_operand(ins.operand);
+        assembly += type_suffix(ins.type) + " ";
+        emit_operand(ins.operand, type_reg_size(ins.type));
         assembly += "\n";
     }
 
-    void emit_allocate_stack(const ASM::AllocateStack &ins) {
-        assembly += std::format("    subq ${}, %rsp\n", -ins.size);
-    }
 
     void emit_binary(const ASM::Binary &ins) {
         switch (ins.op) {
             case ASM::Binary::Operator::ADD:
-                assembly += "    addl ";
+                assembly += "    add";
                 break;
             case ASM::Binary::Operator::SUB:
-                assembly += "    subl ";
+                assembly += "    sub";
                 break;
             case ASM::Binary::Operator::MULT:
-                assembly += "    imull ";
+                assembly += "    imul";
                 break;
             case ASM::Binary::Operator::SHL:
-                assembly += "    shll ";
+                assembly += "    shl";
                 break;
             case ASM::Binary::Operator::SHR:
-                assembly += "    sarl ";
+                assembly += "    sar";
                 break;
             case ASM::Binary::Operator::AND:
-                assembly += "    andl ";
+                assembly += "    and";
                 break;
             case ASM::Binary::Operator::XOR:
-                assembly += "    xorl ";
+                assembly += "    xor";
                 break;
             case ASM::Binary::Operator::OR:
-                assembly += "    orl ";
+                assembly += "    or";
                 break;
         }
+        assembly += type_suffix(ins.type) + " ";
         if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL) {
             emit_operand(ins.left, 1);
         } else {
-            emit_operand(ins.left);
+            emit_operand(ins.left, type_reg_size(ins.type));
         }
         assembly += ", ";
-        emit_operand(ins.right);
+        emit_operand(ins.right, type_reg_size(ins.type));
         assembly += "\n";
     }
 
     void emit_idiv(const ASM::Idiv &ins) {
-        assembly += "    idivl ";
-        emit_operand(ins.divisor);
+        assembly += "    idiv" + type_suffix(ins.type) + " ";
+        emit_operand(ins.divisor, type_reg_size(ins.type));
         assembly += "\n";
     }
 
-    void emit_cdq(const ASM::Cdq &) {
-        assembly += "    cdq\n";
+    void emit_cdq(const ASM::Cdq & ins) {
+        if (ins.type == ASM::Type::LongWord) {
+            assembly += "    cdq\n";
+        } else {
+            assembly += "    cqo\n";
+        }
     }
 
     void emit_cmp(const ASM::Cmp &ins) {
-        assembly += "    cmpl ";
-        emit_operand(ins.left);
+        assembly += "    cmp" + type_suffix(ins.type) + " ";
+        emit_operand(ins.left, type_reg_size(ins.type));
         assembly += ", ";
-        emit_operand(ins.right);
+        emit_operand(ins.right, type_reg_size(ins.type));
         assembly += "\n";
     }
 
@@ -333,7 +371,11 @@ public:
         assembly += std::format("${}", operand.value);
     }
     void emit_data(const ASM::Data & data) {
+#ifdef __APPLE__
+        assembly += "_" + data.identifier + "(%rip)";
+#else
         assembly += data.identifier + "(%rip)";
+#endif
     }
 
     void emit_8byte_register(const ASM::Reg &reg) {
@@ -364,6 +406,9 @@ public:
                 break;
             case ASM::Reg::Name::R11:
                 assembly += "%r11";
+                break;
+            case ASM::Reg::Name::SP:
+                assembly += "%rsp";
                 break;
         }
     }
@@ -397,6 +442,9 @@ public:
             case ASM::Reg::Name::R11:
                 assembly += "%r11d";
                 break;
+            case ASM::Reg::Name::SP:
+                assembly += "%esp";
+            break;
         }
     }
 
@@ -425,6 +473,9 @@ public:
                 break;
             case ASM::Reg::Name::R11:
                 assembly += "%r11b";
+                break;
+            case ASM::Reg::Name::SP:
+                assembly += "%sp";
                 break;
         }
     }

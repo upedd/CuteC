@@ -5,6 +5,11 @@
 #include <unordered_map>
 #include <variant>
 #include <vector>
+#include <cstdint>
+#include <map>
+
+#include "overloaded.h"
+#include "common/box.h"
 
 // TODO: zone allocation
 namespace AST {
@@ -29,9 +34,11 @@ namespace AST {
         EXTERN
     };
 
-    using Type = std::variant<struct EmptyType {}, struct IntType, struct LongType, struct FunctionType>;
-    using TypeHandle = std::unique_ptr<Type>;
 
+    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct FunctionType>;
+    using TypeHandle = box<Type>;
+
+    struct EmptyType {};
     struct IntType {};
     struct LongType {};
     struct FunctionType {
@@ -81,6 +88,29 @@ namespace AST {
     };
 
     using Const = std::variant<ConstInt, ConstLong>;
+    // mess?
+    inline bool operator==(const Const& lhs, const Const& rhs) {
+        return std::visit(overloaded {
+            [&rhs](const auto& l) -> bool {
+                return std::visit(overloaded {
+                    [&l](const auto& r) {
+                        return l.value == r.value;
+                    }
+                }, rhs);
+            }
+        }, lhs);
+    }
+    inline bool operator<(const Const& lhs, const Const& rhs) {
+        return std::visit(overloaded {
+            [&rhs](const auto& l) -> bool {
+                return std::visit(overloaded {
+                    [&l](const auto& r) {
+                        return l.value < r.value;
+                    }
+                }, rhs);
+            }
+        }, lhs);
+    }
 
     struct ConstantExpr {
         Const constant;
@@ -216,7 +246,7 @@ namespace AST {
         ExprHandle expr;
         StmtHandle body;
         std::string label;
-        std::unordered_map<int, std::string> cases; // will be resolved in semantic analysis
+        std::map<Const, std::string> cases; // will be resolved in semantic analysis
         bool has_default = false;
     };
 

@@ -12,7 +12,7 @@ public:
     }
 
     void print_static_variable(const IR::StaticVariable & item) {
-        std::cout << "StaticVariable[" << item.name << "]" << "(global=" << (item.global ? "true" : "false") << ", initial_value=" << item.initial_value << ")\n";
+        std::cout << "StaticVariable[" << item.name << "]" << "(global=" << (item.global ? "true" : "false") << ", initial_value=" << ")\n";
     }
 
     void print() {
@@ -50,6 +50,22 @@ public:
         std::cout << ")\n";
     }
 
+    void print_sign_extend(const IR::SignExtend & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= sign_extend(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
+    void print_truncate(const IR::Truncate & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= truncate(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
     void print_instruction(const IR::Instruction &instruction) {
         std::visit(overloaded{
                        [this](const IR::Return &ins) {
@@ -78,14 +94,24 @@ public:
                        },
                        [this](const IR::Call &ins) {
                            print_call(ins);
-                       }
+                       },
+                        [this](const IR::SignExtend& ins) {
+                            print_sign_extend(ins);
+                        },
+                [this](const IR::Truncate& ins) {
+                    print_truncate(ins);
+                }
                    }, instruction);
     }
 
     void print_value(const IR::Value &value) {
         std::visit(overloaded{
                        [this](const IR::Constant &ins) {
-                           std::cout << ins.value;
+                           std::visit(overloaded {
+                               [](const auto& c) {
+                                   std::cout << c.value;
+                               }
+                           }, ins.constant);
                        },
                        [this](const IR::Variable &ins) {
                            std::cout << ins.name;

@@ -34,4 +34,5 @@ add_executable(CuteC source/main.cpp
         source/analysis/SwitchResolutionPass.cpp
         source/analysis/SwitchResolutionPass.h
         source/analysis/TypeCheckerPass.cpp
-        source/analysis/TypeCheckerPass.h)
+        source/analysis/TypeCheckerPass.h
+        source/common/Box.h)

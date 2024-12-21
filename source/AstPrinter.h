@@ -353,7 +353,8 @@ public:
                        },
                        [this](const FunctionCall &expr) {
                            function_call_expr(expr);
-                       }
+                       },
+                        [this](const CastExpr& expr) {}
                    }, expr);
     }
 
@@ -373,7 +374,7 @@ public:
     }
 
     void constant_expr(const ConstantExpr &expr) {
-        println(std::format("Constant({})", expr.value));
+        println(std::format("Constant({})", std::visit(overloaded{[](const auto& c) -> std::int64_t {return c.value;}}, expr.constant)));
     }
 
     void unary_expr(const UnaryExpr &expr) {

@@ -34,6 +34,10 @@ public:
             return "";
         }
 
+        // for (const auto& token : lexer.tokens) {
+        //     std::cerr << Token::type_to_string(token.type) << '\n';
+        // }
+
         Parser parser(lexer.tokens);
         parser.parse();
         if (!parser.errors.empty()) {
@@ -113,10 +117,10 @@ public:
             return "";
         }
 
-        codegen::IRToAsmTreePass ir_to_asm_tree_pass(std::move(generator.IRProgram));
+        codegen::IRToAsmTreePass ir_to_asm_tree_pass(std::move(generator.IRProgram), &type_checker.symbols);
         ir_to_asm_tree_pass.convert();
         auto &asm_tree = ir_to_asm_tree_pass.asmProgram;
-        codegen::ReplacePseudoRegistersPass replace_pseudo_registers_pass(&asm_tree, &type_checker.symbols);
+        codegen::ReplacePseudoRegistersPass replace_pseudo_registers_pass(&asm_tree, &ir_to_asm_tree_pass.asmSymbols);
         replace_pseudo_registers_pass.process();
 
         int max_offset = replace_pseudo_registers_pass.offset;
