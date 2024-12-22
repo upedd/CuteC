@@ -305,7 +305,7 @@ public:
                 break;
         }
         assembly += type_suffix(ins.type) + " ";
-        if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL) {
+        if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL || ins.op == ASM::Binary::Operator::SAR) {
             emit_operand(ins.left, 1);
         } else {
             emit_operand(ins.left, type_reg_size(ins.type));

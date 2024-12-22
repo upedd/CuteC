@@ -616,7 +616,7 @@ namespace codegen {
         }
 
         void fix_binary(ASM::Binary &binary, std::vector<ASM::Instruction> &output) {
-            if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL) &&
+            if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL || binary.op == ASM::Binary::Operator::SAR) &&
                 is_memory_address(binary.right)) {
                 output.emplace_back(ASM::Mov{binary.type, binary.left, ASM::Reg(ASM::Reg::Name::CX)});
                 binary.left = ASM::Reg(ASM::Reg::Name::CX);
