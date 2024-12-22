@@ -66,6 +66,14 @@ public:
         std::cout << ")\n";
     }
 
+    void print_zero_extend(const IR::ZeroExtend & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= zero_extend(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
     void print_instruction(const IR::Instruction &instruction) {
         std::visit(overloaded{
                        [this](const IR::Return &ins) {
@@ -100,7 +108,10 @@ public:
                         },
                 [this](const IR::Truncate& ins) {
                     print_truncate(ins);
-                }
+                },
+            [this](const IR::ZeroExtend& ins) {
+                print_zero_extend(ins);
+            }
                    }, instruction);
     }
 

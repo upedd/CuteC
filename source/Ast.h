@@ -35,12 +35,14 @@ namespace AST {
     };
 
 
-    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct FunctionType>;
+    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct FunctionType>;
     using TypeHandle = box<Type>;
 
     struct EmptyType {};
     struct IntType {};
     struct LongType {};
+    struct UIntType {};
+    struct ULongType {};
     struct FunctionType {
         std::vector<TypeHandle> parameters_types;
         TypeHandle return_type;
@@ -87,7 +89,15 @@ namespace AST {
         std::int64_t value;
     };
 
-    using Const = std::variant<ConstInt, ConstLong>;
+    struct ConstUInt {
+        unsigned int value;
+    };
+
+    struct ConstULong {
+        std::uint64_t value;
+    };
+
+    using Const = std::variant<ConstInt, ConstLong, ConstUInt, ConstULong>;
     // mess?
     inline bool operator==(const Const& lhs, const Const& rhs) {
         return std::visit(overloaded {

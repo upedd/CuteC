@@ -16,7 +16,15 @@ struct InitialLong {
     std::int64_t value;
 };
 
-using Initial = std::variant<InitialInt, InitialLong>;
+struct InitialUInt {
+    unsigned int value;
+};
+
+struct InitialULong {
+    std::uint64_t value;
+};
+
+using Initial = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong>;
 
 struct NoInitializer {};
 struct Tentative {};
@@ -50,6 +58,31 @@ inline void convert_to(AST::ExprHandle& expr, const AST::TypeHandle& type) {
     auto cast = AST::CastExpr(type, std::move(expr));
     cast.type = type;
     expr = std::make_unique<AST::Expr>(std::move(cast));
+}
+
+inline int get_size_for_type(const AST::TypeHandle& type) {
+    return std::visit(overloaded {
+        [](const AST::IntType&) {
+            return 4;
+        },
+        [](const AST::UIntType&) {
+            return 4;
+        },
+        [](const AST::LongType&) {
+            return 8;
+        },
+        [](const AST::ULongType&) {
+            return 8;
+        },
+        [](const auto&) {
+            return 0; //?
+        }
+    }, *type);
+}
+
+
+inline bool is_unsigned(const AST::TypeHandle& type) {
+    return std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type);
 }
 
 struct Symbol {

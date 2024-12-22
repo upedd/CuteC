@@ -33,6 +33,8 @@ private:
 
     bool match(char c);
 
+    bool match_insensitive(char c);
+
     bool at_end();
 
     void skip_whitespace();

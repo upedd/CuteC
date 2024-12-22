@@ -21,13 +21,19 @@ namespace codegen {
                         [](const AST::IntType&) {
                             return ASM::Type::LongWord;
                         },
+                        [](const AST::UIntType&) {
+                            return ASM::Type::LongWord;
+                        },
                         [](const AST::LongType&) {
+                            return ASM::Type::QuadWord;
+                        },
+                        [](const AST::ULongType&) {
                             return ASM::Type::QuadWord;
                         },
                         [](const auto&) -> ASM::Type {
                             std::unreachable();
                         }
-                    }, *((*symbols)[name].type));
+                    }, *(*symbols)[name].type);
         }
 
         ASM::Type get_type_for_value(const IR::Value& value) {
@@ -37,13 +43,31 @@ namespace codegen {
                         [](const AST::ConstInt&) {
                             return ASM::Type::LongWord;
                         },
+                        [](const AST::ConstUInt&) {
+                            return ASM::Type::LongWord;
+                        },
                         [](const AST::ConstLong&) {
+                            return ASM::Type::QuadWord;
+                        },
+                        [](const AST::ConstULong&) {
                             return ASM::Type::QuadWord;
                         }
                         }, val.constant);
                 },
                 [this](const IR::Variable& val) {
                     return get_type_for_identifier(val.name);
+                }
+            }, value);
+        }
+
+        bool is_unsigned(const IR::Value& value) {
+            return std::visit(overloaded {
+                [](const IR::Constant& val) {
+                    return std::holds_alternative<AST::ConstUInt>(val.constant) || std::holds_alternative<AST::ConstULong>(val.constant);
+                },
+                [this](const IR::Variable& val) {
+                    auto type = (*symbols)[val.name].type;
+                    return std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type);
                 }
             }, value);
         }
@@ -68,6 +92,12 @@ namespace codegen {
                     [&symbol](const AST::LongType&) -> ASM::Symbol {
                         return ASM::ObjectSymbol {ASM::Type::QuadWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
                     },
+                    [&symbol](const AST::ULongType&) -> ASM::Symbol {
+                        return ASM::ObjectSymbol {ASM::Type::QuadWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
+                    },
+                    [&symbol](const AST::UIntType&) -> ASM::Symbol {
+                        return ASM::ObjectSymbol {ASM::Type::LongWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
+                    },
                     [&symbol](const AST::FunctionType&) -> ASM::Symbol {
                         return ASM::FunctionSymbol {std::get<FunctionAttributes>(symbol.attributes).defined};
                     },
@@ -86,6 +116,12 @@ namespace codegen {
                 },
                 [&variable](const AST::LongType&) -> ASM::StaticVariable {
                     return {variable.name, variable.global, 8, variable.initial};
+                },
+                [&variable](const AST::ULongType&) -> ASM::StaticVariable {
+                    return {variable.name, variable.global, 8, variable.initial};
+                },
+                [&variable](const AST::UIntType&) -> ASM::StaticVariable {
+                    return {variable.name, variable.global, 4, variable.initial};
                 },
                 [](const auto&) -> ASM::StaticVariable {
                     std::unreachable();
@@ -163,6 +199,10 @@ namespace codegen {
             instructions.emplace_back(ASM::Mov(ASM::Type::LongWord, convert_value(instruction.source), convert_value(instruction.destination)));
         }
 
+        void convert_zero_extend(const IR::ZeroExtend & instruction, std::vector<ASM::Instruction> & instructions) {
+            instructions.emplace_back(ASM::MovZeroExtend(convert_value(instruction.source), convert_value(instruction.destination)));
+        }
+
         void convert_instruction(const IR::Instruction &instruction, std::vector<ASM::Instruction> &instructions) {
             std::visit(overloaded{
                            [this, &instructions](const IR::Return &instruction) {
@@ -197,7 +237,10 @@ namespace codegen {
                             },
                         [this, &instructions](const IR::Truncate &instruction) {
                             convert_trunctate(instruction, instructions);
-                        }
+                        },
+                [this, &instructions](const IR::ZeroExtend &instruction) {
+                    convert_zero_extend(instruction, instructions);
+                }
                        }, instruction);
         }
 
@@ -256,14 +299,20 @@ namespace codegen {
             if (instruction.op == IR::Binary::Operator::DIVIDE || instruction.op == IR::Binary::Operator::REMAINDER) {
                 instructions.emplace_back(
                     ASM::Mov(get_type_for_value(instruction.left_source), convert_value(instruction.left_source), ASM::Reg(ASM::Reg::Name::AX)));
-                instructions.emplace_back(ASM::Cdq(get_type_for_value(instruction.left_source)));
-                instructions.emplace_back(ASM::Idiv(get_type_for_value(instruction.left_source), convert_value(instruction.right_source)));
+                if (is_unsigned(instruction.left_source)) {
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.left_source), ASM::Imm(0), ASM::Reg(ASM::Reg::Name::DX)));
+                    instructions.emplace_back(ASM::Div(get_type_for_value(instruction.left_source), convert_value(instruction.right_source)));
+                } else {
+                    instructions.emplace_back(ASM::Cdq(get_type_for_value(instruction.left_source)));
+                    instructions.emplace_back(ASM::Idiv(get_type_for_value(instruction.left_source), convert_value(instruction.right_source)));
+                }
                 instructions.emplace_back(ASM::Mov(
                     get_type_for_value(instruction.left_source),
                     ASM::Reg(instruction.op == IR::Binary::Operator::DIVIDE ? ASM::Reg::Name::AX : ASM::Reg::Name::DX),
                     convert_value(instruction.destination)));
             } else {
-                static auto convert_op = [](const IR::Binary::Operator &op) {
+                bool op_unsigned = is_unsigned(instruction.left_source);
+                auto convert_op = [op_unsigned](const IR::Binary::Operator &op) {
                     switch (op) {
                         case IR::Binary::Operator::ADD:
                             return ASM::Binary::Operator::ADD;
@@ -274,7 +323,7 @@ namespace codegen {
                         case IR::Binary::Operator::SHIFT_LEFT:
                             return ASM::Binary::Operator::SHL;
                         case IR::Binary::Operator::SHIFT_RIGHT:
-                            return ASM::Binary::Operator::SHR;
+                            return op_unsigned ? ASM::Binary::Operator::SHR : ASM::Binary::Operator::SAR; // arithmetic shift when performed on signed integers
                         case IR::Binary::Operator::BITWISE_AND:
                             return ASM::Binary::Operator::AND;
                         case IR::Binary::Operator::BITWISE_OR:
@@ -296,18 +345,19 @@ namespace codegen {
         }
 
         void convert_relational(const IR::Binary &instruction, std::vector<ASM::Instruction> &instructions) {
-            static auto convert_op = [](const IR::Binary::Operator &op) {
+            bool op_unsigned = is_unsigned(instruction.left_source);
+             auto convert_op = [op_unsigned](const IR::Binary::Operator &op) {
                 switch (op) {
                     case IR::Binary::Operator::EQUAL:
                         return ASM::ConditionCode::E;
                     case IR::Binary::Operator::GREATER:
-                        return ASM::ConditionCode::G;
+                        return op_unsigned ? ASM::ConditionCode::A : ASM::ConditionCode::G;
                     case IR::Binary::Operator::GREATER_EQUAL:
-                        return ASM::ConditionCode::GE;
+                        return op_unsigned ? ASM::ConditionCode::AE : ASM::ConditionCode::GE;
                     case IR::Binary::Operator::LESS:
-                        return ASM::ConditionCode::L;
+                        return op_unsigned ? ASM::ConditionCode::B : ASM::ConditionCode::L;
                     case IR::Binary::Operator::LESS_EQUAL:
-                        return ASM::ConditionCode::LE;
+                        return op_unsigned ? ASM::ConditionCode::BE : ASM::ConditionCode::LE;
                     case IR::Binary::Operator::NOT_EQUAL:
                         return ASM::ConditionCode::NE;
                     default:
@@ -405,6 +455,13 @@ namespace codegen {
                                replace(mov.destination);
                                replace(mov.source);
                            },
+                            [this](ASM::Div& div) {
+                                replace(div.divisor);
+                            },
+                [this](ASM::MovZeroExtend& movz) {
+                    replace(movz.destination);
+                    replace(movz.source);
+                },
                            [this](auto &) {
                            }
                        }, instruction);
@@ -493,6 +550,15 @@ namespace codegen {
             output.emplace_back(push);
         }
 
+        void fix_mov_zero_extend(const ASM::MovZeroExtend & mov, std::vector<ASM::Instruction> & output) {
+            if (std::holds_alternative<ASM::Reg>(mov.destination)) {
+                output.emplace_back(ASM::Mov(ASM::Type::LongWord, mov.source, mov.destination));
+            } else if (is_memory_address(mov.destination)) {
+                output.emplace_back(ASM::Mov(ASM::Type::LongWord, mov.source, ASM::Reg(ASM::Reg::Name::R11)));
+                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::R11), mov.destination));
+            }
+        }
+
         void visit_instruction(ASM::Instruction &instruction, std::vector<ASM::Instruction> &output) {
             std::visit(overloaded{
                            [this, &output](ASM::Mov &mov) {
@@ -513,6 +579,12 @@ namespace codegen {
                             [this, &output](ASM::Push& push) {
                                 fix_push(push, output);
                             },
+                [this, &output](ASM::Div &div) {
+                    fix_div(div, output);
+                },
+                [this, &output](ASM::MovZeroExtend &mov) {
+                    fix_mov_zero_extend(mov, output);
+                },
                            [&output](auto &instruction) {
                                output.emplace_back(instruction);
                            },
@@ -575,6 +647,14 @@ namespace codegen {
                 idiv.divisor = ASM::Reg(ASM::Reg::Name::R10);
             }
             output.emplace_back(idiv);
+        }
+
+        void fix_div(ASM::Div& div, std::vector<ASM::Instruction> &output) {
+            if (std::holds_alternative<ASM::Imm>(div.divisor)) {
+                output.emplace_back(ASM::Mov{div.type, div.divisor, ASM::Reg(ASM::Reg::Name::R10)});
+                div.divisor = ASM::Reg(ASM::Reg::Name::R10);
+            }
+            output.emplace_back(div);
         }
 
         void fix_cmp(ASM::Cmp &cmp, std::vector<ASM::Instruction> &output) {

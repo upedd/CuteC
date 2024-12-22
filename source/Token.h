@@ -74,7 +74,11 @@ public:
         STATIC,
         EXTERN,
         LONG,
-        LONG_CONSTANT
+        LONG_CONSTANT,
+        UNSIGNED,
+        SIGNED,
+        UNSIGNED_INT_CONSTANT,
+        UNSIGNED_LONG_CONSTANT
     };
 
     static std::string type_to_string(Type type) {
@@ -195,6 +199,14 @@ public:
                 return "Long";
             case Type::LONG_CONSTANT:
                 return "LongConstant";
+            case Type::UNSIGNED:
+                return "Unsigned";
+            case Type::SIGNED:
+                return "Signed";
+            case Type::UNSIGNED_INT_CONSTANT:
+                return "UnsignedIntegerConstant";
+            case Type::UNSIGNED_LONG_CONSTANT:
+                return "UnsignedLongConstant";
         }
     }
 

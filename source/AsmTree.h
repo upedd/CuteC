@@ -29,13 +29,17 @@ namespace ASM {
         G,
         GE,
         L,
-        LE
+        LE,
+        A,
+        AE,
+        B,
+        BE
     };
 
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack, struct Data>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct Binary, struct
-        Idiv, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
-        struct Push, struct Call, struct Movsx>;
+        Idiv, struct Div, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
+        struct Push, struct Call, struct Movsx, struct MovZeroExtend>;
 
     struct Function {
         std::string name;
@@ -56,7 +60,7 @@ namespace ASM {
     };
 
     struct Imm {
-        std::int64_t value;
+        std::uint64_t value;
     };
 
     struct Reg {
@@ -115,7 +119,8 @@ namespace ASM {
             AND,
             OR,
             XOR,
-            SHR,
+            SAR, // arithmetic shift
+            SHR, // logical shift
             SHL
         };
 
@@ -126,6 +131,11 @@ namespace ASM {
     };
 
     struct Idiv {
+        Type type;
+        Operand divisor;
+    };
+
+    struct Div {
         Type type;
         Operand divisor;
     };
@@ -167,6 +177,11 @@ namespace ASM {
     };
 
     struct Movsx {
+        Operand source;
+        Operand destination;
+    };
+
+    struct MovZeroExtend {
         Operand source;
         Operand destination;
     };

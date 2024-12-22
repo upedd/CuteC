@@ -9,19 +9,39 @@ void Lexer::make_constant() {
         consume();
     }
     bool is_long = false;
+    bool is_unsigned = false;
 
-    if (peek() == 'l' || peek() == 'L') {
-        consume();
+    // refactor!
+    if (match_insensitive('l')) {
         is_long = true;
+    } else if (match_insensitive('u')) {
+        is_unsigned = true;
+        if (match_insensitive('l')) {
+            is_long = true;
+        }
     }
 
     if (is_valid_identifier(peek())) {
         errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line,
                                         m_linepos));
     }
+    Token::Type type;
+    if (is_long) {
+        if (is_unsigned) {
+            type = Token::Type::UNSIGNED_LONG_CONSTANT;
+        } else {
+            type = Token::Type::LONG_CONSTANT;
+        }
+    } else {
+        if (is_unsigned) {
+            type = Token::Type::UNSIGNED_INT_CONSTANT;
+        } else {
+            type = Token::Type::CONSTANT;
+        }
+    }
 
-    tokens.emplace_back(is_long ? Token::Type::LONG_CONSTANT : Token::Type::CONSTANT, Token::Position(m_line, m_linepos),
-                        m_source.substr(m_start, m_pos - m_start - is_long));
+    tokens.emplace_back(type, Token::Position(m_line, m_linepos),
+                        m_source.substr(m_start, m_pos - m_start - is_long - is_unsigned));
 }
 
 void Lexer::make_keyword_or_identifier() {
@@ -67,6 +87,10 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::STATIC);
     } else if (lexeme == "long") {
         make_token(Token::Type::LONG);
+    } else if (lexeme == "unsigned") {
+        make_token(Token::Type::UNSIGNED);
+    } else if (lexeme == "signed") {
+        make_token(Token::Type::SIGNED);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }
@@ -243,6 +267,15 @@ char Lexer::peek() {
 
 bool Lexer::match(char c) {
     if (peek() == c) {
+        consume();
+        return true;
+    }
+    return false;
+}
+
+bool Lexer::match_insensitive(char c) {
+    // assert c is in lowercase
+    if (peek() == c || peek() == c - 32) {
         consume();
         return true;
     }

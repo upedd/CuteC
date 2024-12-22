@@ -1,28 +1,46 @@
 #include "Parser.h"
 
+#include <algorithm>
+#include <ranges>
+
 #include "Token.h"
 #include "Token.h"
 #include "analysis/TypeCheckerPass.h"
 
 static bool is_type_specifier(Token::Type type) {
-    return type == Token::Type::INT || type == Token::Type::LONG;
+    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED;
 }
 
 static bool is_specifier(Token::Type type) {
     return type == Token::Type::STATIC || type == Token::Type::EXTERN || is_type_specifier(type);
 }
 
+// mess
+static bool contains_only_unique_specifiers(const std::vector<Token::Type>& types) {
+    auto copy = types;
+    std::sort(copy.begin(), copy.end());
+    return std::adjacent_find(copy.begin(), copy.end()) == copy.end();
+}
 
 AST::Type Parser::parse_type(const std::vector<Token::Type>& types) {
     // mess
-    if (types == std::vector { Token::Type::INT }) {
-        return AST::IntType {};
+    if (types.empty() || !contains_only_unique_specifiers(types) || (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end() && std::find(types.begin(), types.end(), Token::Type::SIGNED) != types.end())) {
+        errors.emplace_back("Invalid Type Specifier");
+        return AST::IntType {}; // how to handle failure?
     }
-    if (types == std::vector { Token::Type::LONG } || types == std::vector { Token::Type::INT, Token::Type::LONG } || types == std::vector { Token::Type::LONG, Token::Type::INT }) {
+    bool is_long = std::find(types.begin(), types.end(), Token::Type::LONG) != types.end();
+    bool is_unsigned = std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end();
+    if (is_long && is_unsigned) {
+        return AST::ULongType {};
+    }
+    if (is_long ) {
         return AST::LongType {};
     }
-    errors.emplace_back("Invalid Type Specifier");
-    // how to handle
+
+    if (is_unsigned ) {
+        return AST::UIntType {};
+    }
+    return AST::IntType {};
 }
 
 std::pair<AST::Type, AST::StorageClass> Parser::parse_type_and_storage_class() {
@@ -469,23 +487,42 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
 AST::ExprHandle Parser::constant(const Token& token) {
     // mess
     std::string value = token.lexeme;
-    if (token.type == Token::Type::LONG_CONSTANT) {
+
+    if (token.type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+        try {
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstULong(std::stoull(token.lexeme))));
+        } catch (const std::out_of_range&) {
+            errors.emplace_back("Constant too large!");
+            // graceful errors?
+        }
+    } else if (token.type == Token::Type::UNSIGNED_INT_CONSTANT) {
+        try {
+            std::uint64_t val = std::stoull(token.lexeme);
+            if (val < std::numeric_limits<std::uint32_t>::max()) {
+                return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstUInt(val)));
+            }
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstULong(val)));
+        } catch (const std::out_of_range&) {
+                errors.emplace_back("Constant too large!");
+                // graceful errors?
+        }
+    } else if (token.type == Token::Type::LONG_CONSTANT) {
         try {
             return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
         } catch (const std::out_of_range&) {
             errors.emplace_back("Constant too large!");
             // graceful errors?
         }
-    }
-
-    try {
-        return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(std::stoi(token.lexeme))));
-    } catch (const std::out_of_range&) {
+    } else {
         try {
-            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(std::stoi(token.lexeme))));
         } catch (const std::out_of_range&) {
-            errors.emplace_back("Constant too large!");
-            // graceful errors?
+            try {
+                return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(std::stoll(token.lexeme))));
+            } catch (const std::out_of_range&) {
+                errors.emplace_back("Constant too large!");
+                // graceful errors?
+            }
         }
     }
 }
@@ -494,7 +531,7 @@ AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
-    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT) {
+    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT) {
         return constant(token);
     }
     // TODO: correct?

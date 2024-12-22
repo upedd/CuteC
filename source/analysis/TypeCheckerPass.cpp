@@ -6,6 +6,7 @@
 
 #include <functional>
 #include <iostream>
+#include <utility>
 
 #include "../overloaded.h"
 
@@ -24,11 +25,22 @@ static bool types_match(const AST::TypeHandle& a, const AST::TypeHandle& b) {
     return true;
 }
 
+// wrong for 32-bit systems!
+
 static AST::TypeHandle get_common_type(const AST::TypeHandle &lhs, const AST::TypeHandle &rhs) {
     if (lhs->index() == rhs->index()) {
         return lhs;
     }
-    return AST::Type(AST::LongType());
+    if (get_size_for_type(lhs) == get_size_for_type(rhs)) {
+        if (std::holds_alternative<AST::IntType>(*lhs) || std::holds_alternative<AST::LongType>(*lhs)) {
+            return rhs;
+        }
+        return lhs;
+    }
+    if (get_size_for_type(lhs) > get_size_for_type(rhs)) {
+        return lhs;
+    }
+    return rhs;
 }
 
 
@@ -45,17 +57,45 @@ void TypeCheckerPass::check_block(std::vector<AST::BlockItem> &block) {
     }
 }
 
+
+
 void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
     InitialValue initial_value;
     if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
+        auto& constant = std::get<AST::ConstantExpr>(*decl.expr);
         std::visit(overloaded {
-            [&initial_value](const AST::ConstInt &constant) {
-                    initial_value = InitialInt(constant.value);
+            [&initial_value, &constant](const AST::IntType&) {
+                    std::visit(overloaded {
+                        [&initial_value](const auto& c) {
+                            initial_value = InitialInt(c.value);
+                        }
+                    }, constant.constant);
             },
-            [&initial_value](const AST::ConstLong &constant) {
-                initial_value = InitialLong(constant.value);
+            [&initial_value, &constant](const AST::LongType&) {
+                std::visit(overloaded {
+                        [&initial_value](const auto& c) {
+                            initial_value = InitialLong(c.value);
+                        }
+                    }, constant.constant);
+            },
+            [&initial_value, &constant](const AST::ULongType&) {
+                std::visit(overloaded {
+                        [&initial_value](const auto& c) {
+                            initial_value = InitialULong(c.value);
+                        }
+                    }, constant.constant);
+            },
+            [&initial_value, &constant](const AST::UIntType&) {
+                std::visit(overloaded {
+                        [&initial_value](const auto& c) {
+                            initial_value = InitialUInt(c.value);
+                        }
+                    }, constant.constant);
+            },
+            [](const auto&) {
+                std::unreachable();
             }
-        }, std::get<AST::ConstantExpr>(*decl.expr).constant);
+        }, *decl.type);
     } else if (!decl.expr) {
         if (decl.storage_class == AST::StorageClass::EXTERN) {
             initial_value = NoInitializer();
@@ -118,6 +158,12 @@ void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
             },
             [&initial_value](const AST::ConstLong &constant) {
                 initial_value = InitialLong(constant.value);
+            },
+            [&initial_value](const AST::ConstULong &constant) {
+                initial_value = InitialULong(constant.value);
+            },
+            [&initial_value](const AST::ConstUInt &constant) {
+                initial_value = InitialUInt(constant.value);
             }
         }, std::get<AST::ConstantExpr>(*decl.expr).constant);
         } else if (!decl.expr) {
@@ -127,6 +173,12 @@ void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
                 },
                 [&initial_value](const AST::LongType &) {
                     initial_value = InitialLong(0);
+                },
+                [&initial_value](const AST::ULongType &) {
+                    initial_value = InitialULong(0);
+                },
+                [&initial_value](const AST::UIntType &) {
+                    initial_value = InitialUInt(0);
                 },
                 [](const auto&) {}
             }, *decl.type);
@@ -337,6 +389,12 @@ void TypeCheckerPass::check_constant_expr(AST::ConstantExpr& expr) {
         },
         [&expr](const AST::ConstLong&) {
             expr.type = AST::Type(AST::LongType());
+        },
+        [&expr](const AST::ConstUInt&) {
+            expr.type = AST::Type(AST::UIntType());
+        },
+        [&expr](const AST::ConstULong&) {
+            expr.type = AST::Type(AST::ULongType());
         }
     }, expr.constant);
 }

@@ -42,9 +42,9 @@ public:
         // functions names on apple must be prefixed by an underscore
         if (function.global) {
 #if __APPLE__
-            assembly += "    .global _" + function.name + "\n";
+            assembly += "    .globl _" + function.name + "\n";
 #else
-            assembly += "    .global " + function.name + "\n";
+            assembly += "    .globl " + function.name + "\n";
 #endif
         }
 #if __APPLE__
@@ -60,9 +60,9 @@ public:
         }
     }
 
-    static std::int64_t get_initial_value(const Initial& initial) {
+    static std::uint64_t get_initial_value(const Initial& initial) {
         return std::visit(overloaded {
-            [](const auto& init) -> std::int64_t {
+            [](const auto& init) -> std::uint64_t {
                 return init.value;
             }
         }, initial);
@@ -85,38 +85,81 @@ public:
         }
     }
 
+    bool is_initial_zero(const Initial & initial) {
+        return std::visit(overloaded {
+            [](const InitialInt& init) {
+                return init.value == 0;
+            },
+            [](const InitialLong& init) {
+                return init.value == 0l;
+            },
+            [](const InitialUInt& init) {
+                return init.value == 0u;
+            },
+            [](const InitialULong& init) {
+                return init.value == 0ul;
+            }
+        }, initial);
+    }
+
+    int get_aligment(const Initial & initial) {
+        return std::visit(overloaded {
+            [](const InitialInt&) {
+                return 4;
+            },
+            [](const InitialLong&) {
+                return 8;
+            },
+            [](const InitialUInt&) {
+                return 4;
+            },
+            [](const InitialULong&) {
+                return 8;
+            }
+        }, initial);
+    }
+
     void emit_static_variable(const ASM::StaticVariable & variable) {
         if (variable.global) {
 #if __APPLE__
-            assembly += "    .global _" + variable.name + "\n";
+            assembly += "    .globl _" + variable.name + "\n";
 #else
-            assembly += "    .global " + variable.name + "\n";
+            assembly += "    .globl " + variable.name + "\n";
 #endif
         }
 
-        if (get_initial_value(variable.initial_value) == 0) {
+        if (is_initial_zero(variable.initial_value)) {
             assembly += "    .bss\n";
         } else {
             assembly += "    .data\n";
         }
-        assembly += "    .balign " + std::to_string(variable.alignment) + " \n";
+        assembly += "    .balign " + std::to_string(get_aligment(variable.initial_value)) + " \n";
 #if __APPLE__
         assembly += "_" + variable.name + ":\n";
 #else
         assembly += variable.name + ":\n";
 #endif
         if (get_initial_value(variable.initial_value) == 0) {
-            if (std::holds_alternative<InitialInt>(variable.initial_value)) {
+            if (std::holds_alternative<InitialInt>(variable.initial_value) || std::holds_alternative<InitialUInt>(variable.initial_value)) {
                 assembly += "    .zero 4\n";
             } else {
                 assembly += "    .zero 8\n";
             }
         } else {
-            if (std::holds_alternative<InitialInt>(variable.initial_value)) {
-                assembly += "    .long " + std::to_string(std::get<InitialInt>(variable.initial_value).value) + "\n";
-            } else {
-                assembly += "    .quad " + std::to_string(std::get<InitialLong>(variable.initial_value).value) + "\n";
-            }
+            std::visit(overloaded {
+                [this](const InitialInt& init) {
+                    assembly += "    .long " + std::to_string(init.value) + "\n";
+                },
+                [this](const InitialUInt& init) {
+                    assembly += "    .long " + std::to_string(init.value) + "\n";
+                },
+                [this](const InitialLong& init) {
+                    assembly += "    .quad " + std::to_string(init.value) + "\n";
+                },
+                [this](const InitialULong& init) {
+                    assembly += "    .quad " + std::to_string(init.value) + "\n";
+                }
+            }, variable.initial_value);
         }
     }
 
@@ -142,6 +185,12 @@ public:
         emit_operand(ins.source, 4);
         assembly += ", ";
         emit_operand(ins.destination, 8);
+        assembly += "\n";
+    }
+
+    void emit_div(const ASM::Div & ins) {
+        assembly += "    div" + type_suffix(ins.type) + " ";
+        emit_operand(ins.divisor, type_reg_size(ins.type));
         assembly += "\n";
     }
 
@@ -188,7 +237,11 @@ public:
                        },
                        [this](const ASM::Movsx& ins) {
                            emit_movsx(ins);
-                       }
+                       },
+                [this](const ASM::Div &ins) {
+                    emit_div(ins);
+                },
+            [this](const ASM::MovZeroExtend &ins) {}
                    }, instruction);
     }
 
@@ -235,9 +288,12 @@ public:
             case ASM::Binary::Operator::SHL:
                 assembly += "    shl";
                 break;
-            case ASM::Binary::Operator::SHR:
+            case ASM::Binary::Operator::SAR:
                 assembly += "    sar";
                 break;
+            case ASM::Binary::Operator::SHR:
+                assembly += "    shr";
+            break;
             case ASM::Binary::Operator::AND:
                 assembly += "    and";
                 break;
@@ -301,6 +357,18 @@ public:
                 break;
             case ASM::ConditionCode::G:
                 assembly += "g";
+                break;
+            case ASM::ConditionCode::A:
+                assembly += "a";
+                break;
+            case ASM::ConditionCode::AE:
+                assembly += "ae";
+                break;
+            case ASM::ConditionCode::B:
+                assembly += "b";
+                break;
+            case ASM::ConditionCode::BE:
+                assembly += "be";
                 break;
         }
     }

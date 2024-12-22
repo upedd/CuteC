@@ -1,5 +1,7 @@
 #include "SwitchResolutionPass.h"
 
+#include <utility>
+
 #include "TypeCheckerPass.h"
 #include "../overloaded.h"
 
@@ -69,12 +71,39 @@ void SwitchResolutionPass::run() {
 }
 
 static void convert_const(AST::Const& constant, AST::TypeHandle& type) {
-    if (std::holds_alternative<AST::IntType>(*type) && std::holds_alternative<AST::ConstLong>(constant)) {
-        constant = AST::ConstInt(std::get<AST::ConstLong>(constant).value);
-    } else if (std::holds_alternative<AST::LongType>(*type) && std::holds_alternative<AST::ConstInt>(constant)) {
-        constant = AST::ConstLong(std::get<AST::ConstInt>(constant).value);
-    }
-
+    std::visit(overloaded {
+        [&constant](const AST::IntType&) {
+            std::visit(overloaded {
+                [&constant](const auto& c) {
+                    constant = AST::ConstInt(c.value);
+                }
+            }, constant);
+        },
+        [&constant](const AST::UIntType&) {
+            std::visit(overloaded {
+                [&constant](const auto& c) {
+                    constant = AST::ConstUInt(c.value);
+                }
+            }, constant);
+        },
+        [&constant](const AST::LongType&) {
+            std::visit(overloaded {
+                [&constant](const auto& c) {
+                    constant = AST::ConstLong(c.value);
+                }
+            }, constant);
+        },
+        [&constant](const AST::ULongType&) {
+            std::visit(overloaded {
+                [&constant](const auto& c) {
+                    constant = AST::ConstULong(c.value);
+                }
+            }, constant);
+        },
+        [](const auto&) {
+            std::unreachable();
+        }
+    }, *type);
 }
 
 void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {

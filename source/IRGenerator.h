@@ -38,6 +38,12 @@ public:
                             [this, &name, &attributes, &symbol](const AST::LongType&) {
                                 IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialLong(0), *symbol.type));
                             },
+                            [this, &name, &attributes, &symbol](const AST::ULongType&) {
+                                IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialULong(0), *symbol.type));
+                            },
+                            [this, &name, &attributes, &symbol](const AST::UIntType&) {
+                                IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialUInt(0), *symbol.type));
+                            },
                             [](const auto&) {}
                         }, *symbol.type);
                     },
@@ -325,10 +331,14 @@ public:
             return res;
         }
         auto destination = make_variable(expr.type);
-        if (std::holds_alternative<AST::LongType>(*expr.target)) {
+        if (get_size_for_type(expr.target) == get_size_for_type(get_type(expr.expr))) {
+            instructions.emplace_back(IR::Copy(res, destination));
+        } else if (get_size_for_type(expr.target) < get_size_for_type(get_type(expr.expr))) {
+            instructions.emplace_back(IR::Truncate(res, destination));
+        } else if (std::holds_alternative<AST::IntType>(*get_type(expr.expr)) || std::holds_alternative<AST::LongType>(*get_type(expr.expr))) {
             instructions.emplace_back(IR::SignExtend(res, destination));
         } else {
-            instructions.emplace_back(IR::Truncate(res, destination));
+            instructions.emplace_back(IR::ZeroExtend(res, destination));
         }
         return destination;
     }
