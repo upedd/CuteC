@@ -17,7 +17,7 @@ public:
     Lexer(std::string source) : m_source(std::move(source)) {
     };
 
-    void make_constant();
+    void make_constant(bool fractional = false);
 
     void make_keyword_or_identifier();
 
@@ -44,6 +44,8 @@ private:
     bool is_digit(char c);
 
     bool is_valid_identifier(char c);
+
+    bool is_invalid_after_constant(char c);
 
     void make_token(Token::Type type);
 

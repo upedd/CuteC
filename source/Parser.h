@@ -73,7 +73,7 @@ public:
 
     AST::UnaryExpr::Kind postfix_operator();
 
-    AST::AssigmentExpr::Operator compound_operator();
+    std::optional<AST::BinaryExpr::Kind> compound_operator();
 
     AST::BinaryExpr::Kind binary_operator();
 

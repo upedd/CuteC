@@ -131,7 +131,7 @@ public:
             return "";
         }
 
-        CodeEmitter emitter(std::move(asm_tree), &type_checker.symbols);
+        CodeEmitter emitter(std::move(asm_tree), &ir_to_asm_tree_pass.asmSymbols);
         emitter.emit();
 
         return emitter.assembly;

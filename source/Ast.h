@@ -35,7 +35,7 @@ namespace AST {
     };
 
 
-    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct FunctionType>;
+    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct DoubleType, struct FunctionType>;
     using TypeHandle = box<Type>;
 
     struct EmptyType {};
@@ -43,6 +43,7 @@ namespace AST {
     struct LongType {};
     struct UIntType {};
     struct ULongType {};
+    struct DoubleType {};
     struct FunctionType {
         std::vector<TypeHandle> parameters_types;
         TypeHandle return_type;
@@ -97,7 +98,11 @@ namespace AST {
         std::uint64_t value;
     };
 
-    using Const = std::variant<ConstInt, ConstLong, ConstUInt, ConstULong>;
+    struct ConstDouble {
+        double value;
+    };
+
+    using Const = std::variant<ConstInt, ConstLong, ConstUInt, ConstULong, ConstDouble>;
     // mess?
     inline bool operator==(const Const& lhs, const Const& rhs) {
         return std::visit(overloaded {
@@ -177,22 +182,6 @@ namespace AST {
     };
 
     struct AssigmentExpr {
-        // used for compound assigment
-        enum class Operator {
-            NONE,
-            ADD,
-            SUBTRACT,
-            MULTIPLY,
-            DIVIDE,
-            REMAINDER,
-            SHIFT_LEFT,
-            SHIFT_RIGHT,
-            BITWISE_AND,
-            BITWISE_OR,
-            BITWISE_XOR
-        };
-
-        Operator op;
         ExprHandle left;
         ExprHandle right;
         TypeHandle type;

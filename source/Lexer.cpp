@@ -4,14 +4,46 @@
 
 #include "IR.h"
 
-void Lexer::make_constant() {
+void Lexer::make_constant(bool fractional) {
+    bool is_floating = fractional;
     while (is_digit(peek())) {
         consume();
     }
+
+
+    if (!fractional && match('.')) {
+        is_floating = true;
+        while (is_digit(peek())) {
+            consume();
+        }
+    }
+
+    if (match_insensitive('e')) {
+        is_floating = true;
+        match('+') || match('-');
+        if (!is_digit(peek())) {
+            errors.emplace_back(std::format("Missing exponent: '{}' at {}:{}", peek(), m_line,
+                                        m_linepos));
+        }
+
+        while (is_digit(peek())) {
+            consume();
+        }
+    }
+
+    if (is_floating) {
+        if (is_invalid_after_constant(peek())) {
+            errors.emplace_back(std::format("Unexpected character in number literal: '{}' at {}:{}", peek(), m_line,
+                                        m_linepos));
+        }
+        tokens.emplace_back(Token::Type::FLOATING_POINT_CONSTANT, Token::Position(m_line, m_linepos),
+                        m_source.substr(m_start, m_pos - m_start));
+        return;
+    }
+
+
     bool is_long = false;
     bool is_unsigned = false;
-
-    // refactor!
     if (match_insensitive('l')) {
         is_long = true;
     } else if (match_insensitive('u')) {
@@ -91,6 +123,8 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::UNSIGNED);
     } else if (lexeme == "signed") {
         make_token(Token::Type::SIGNED);
+    } else if (lexeme == "double") {
+        make_token(Token::Type::DOUBLE);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }
@@ -235,6 +269,13 @@ void Lexer::lex() {
             case ',':
                 make_token(Token::Type::COMMA);
                 break;
+            case '.':
+                if (is_digit(peek())) {
+                    make_constant(true);
+                } else {
+                    std::unreachable(); // TODO
+                }
+                break;
             default: {
                 if (is_digit(c)) {
                     make_constant();
@@ -249,7 +290,6 @@ void Lexer::lex() {
 
     make_token(Token::Type::END);
 }
-
 char Lexer::consume() {
     if (at_end()) {
         return '\0';
@@ -305,6 +345,10 @@ bool Lexer::is_digit(char c) {
 
 bool Lexer::is_valid_identifier(char c) {
     return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || (c >= '0' && c <= '9');
+}
+
+bool Lexer::is_invalid_after_constant(char c) {
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_' || c == '.';
 }
 
 void Lexer::make_token(Token::Type type) {

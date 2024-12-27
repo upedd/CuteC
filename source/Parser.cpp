@@ -8,7 +8,7 @@
 #include "analysis/TypeCheckerPass.h"
 
 static bool is_type_specifier(Token::Type type) {
-    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED;
+    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED || type == Token::Type::DOUBLE;
 }
 
 static bool is_specifier(Token::Type type) {
@@ -23,8 +23,12 @@ static bool contains_only_unique_specifiers(const std::vector<Token::Type>& type
 }
 
 AST::Type Parser::parse_type(const std::vector<Token::Type>& types) {
+    if (types == std::vector {Token::Type::DOUBLE}) {
+        return AST::DoubleType {};
+    }
+
     // mess
-    if (types.empty() || !contains_only_unique_specifiers(types) || (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end() && std::find(types.begin(), types.end(), Token::Type::SIGNED) != types.end())) {
+    if (std::find(types.begin(), types.end(), Token::Type::DOUBLE) != types.end() ||types.empty() || !contains_only_unique_specifiers(types) || (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end() && std::find(types.begin(), types.end(), Token::Type::SIGNED) != types.end())) {
         errors.emplace_back("Invalid Type Specifier");
         return AST::IntType {}; // how to handle failure?
     }
@@ -393,7 +397,16 @@ AST::ExprHandle Parser::expression(Precedence min_precedence) {
         if (get_precedence(token.type) == Precedence::ASSIGMENT) {
             auto op = compound_operator();
             auto right = expression(get_precedence(token.type));
-            left = std::make_unique<AST::Expr>(AST::AssigmentExpr(op, std::move(left), std::move(right)));
+            if (!std::holds_alternative<AST::VariableExpr>(*left)) {
+                errors.emplace_back("Left operand of assigment must be a lvalue");
+            }
+            auto var_expr = std::get<AST::VariableExpr>(*left);
+            if (op) {
+                auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::make_unique<AST::Expr>(AST::VariableExpr(var_expr.name)), std::move(right)));
+                left  = std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(binary)));
+            } else {
+                left  = std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(right)));
+            }
         } else if (token.type == Token::Type::QUESTION_MARK) {
             consume();
             auto then_expr = expression();
@@ -411,30 +424,30 @@ AST::ExprHandle Parser::expression(Precedence min_precedence) {
     return left;
 }
 
-AST::AssigmentExpr::Operator Parser::compound_operator() {
+std::optional<AST::BinaryExpr::Kind> Parser::compound_operator() {
     switch (Token token = consume(); token.type) {
         case Token::Type::EQUAL:
-            return AST::AssigmentExpr::Operator::NONE;
+            return {};
         case Token::Type::PLUS_EQUAL:
-            return AST::AssigmentExpr::Operator::ADD;
+            return AST::BinaryExpr::Kind::ADD;
         case Token::Type::MINUS_EQUAL:
-            return AST::AssigmentExpr::Operator::SUBTRACT;
+            return AST::BinaryExpr::Kind::SUBTRACT;
         case Token::Type::ASTERISK_EQUAL:
-            return AST::AssigmentExpr::Operator::MULTIPLY;
+            return AST::BinaryExpr::Kind::MULTIPLY;
         case Token::Type::PERCENT_EQUAL:
-            return AST::AssigmentExpr::Operator::REMAINDER;
+            return AST::BinaryExpr::Kind::REMAINDER;
         case Token::Type::SLASH_EQUAL:
-            return AST::AssigmentExpr::Operator::DIVIDE;
+            return AST::BinaryExpr::Kind::DIVIDE;
         case Token::Type::GREATER_GREATER_EQUAL:
-            return AST::AssigmentExpr::Operator::SHIFT_RIGHT;
+            return AST::BinaryExpr::Kind::SHIFT_RIGHT;
         case Token::Type::LESS_LESS_EQUAL:
-            return AST::AssigmentExpr::Operator::SHIFT_LEFT;
+            return AST::BinaryExpr::Kind::SHIFT_LEFT;
         case Token::Type::AND_EQUAL:
-            return AST::AssigmentExpr::Operator::BITWISE_AND;
+            return AST::BinaryExpr::Kind::BITWISE_AND;
         case Token::Type::CARET_EQUAL:
-            return AST::AssigmentExpr::Operator::BITWISE_XOR;
+            return AST::BinaryExpr::Kind::BITWISE_XOR;
         case Token::Type::BAR_EQUAL:
-            return AST::AssigmentExpr::Operator::BITWISE_OR;
+            return AST::BinaryExpr::Kind::BITWISE_OR;
         default:
             std::unreachable();
     }
@@ -487,8 +500,15 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
 AST::ExprHandle Parser::constant(const Token& token) {
     // mess
     std::string value = token.lexeme;
-
-    if (token.type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+    if (token.type == Token::Type::FLOATING_POINT_CONSTANT) {
+        // i absolutely love c++
+        // we cannot use std::from_chars or std::stod as they don't distinguish between underflow and overflow
+        // however strtod correctly handles the case of rounding out of range values either to zero or infinity
+        // this probably is implementation defined so we can only pray this is implemented consistently
+        // TODO: maybe find more bullet-proof way
+        double output = std::strtod(value.c_str(), nullptr);
+        return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstDouble(output)));
+    } else if (token.type == Token::Type::UNSIGNED_LONG_CONSTANT) {
         try {
             return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstULong(std::stoull(token.lexeme))));
         } catch (const std::out_of_range&) {
@@ -531,7 +551,7 @@ AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
-    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT || token.type == Token::Type::FLOATING_POINT_CONSTANT) {
         return constant(token);
     }
     // TODO: correct?

@@ -2,6 +2,7 @@
 #define IRGENERATOR_H
 #include <functional>
 
+#include "AsmTree.h"
 #include "Ast.h"
 #include "IR.h"
 #include "overloaded.h"
@@ -43,6 +44,9 @@ public:
                             },
                             [this, &name, &attributes, &symbol](const AST::UIntType&) {
                                 IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialUInt(0), *symbol.type));
+                            },
+                            [this, &name, &attributes, &symbol](const AST::DoubleType&) {
+                                IRProgram.items.emplace_back(IR::StaticVariable(name, attributes.global, InitialDouble(0), *symbol.type));
                             },
                             [](const auto&) {}
                         }, *symbol.type);
@@ -330,7 +334,34 @@ public:
         if (get_type(expr.expr)->index() == expr.target->index()) {
             return res;
         }
+
+        auto type = get_type(expr.expr);
         auto destination = make_variable(expr.type);
+
+        if (std::holds_alternative<AST::DoubleType>(*expr.target)) {
+            if (std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::LongType>(*type)) {
+                instructions.emplace_back(IR::IntToDouble(res, destination));
+                return destination;
+            }
+
+            if (std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type)) {
+                instructions.emplace_back(IR::UIntToDouble(res, destination));
+                return destination;
+            }
+        }
+
+        if (std::holds_alternative<AST::DoubleType>(*type)) {
+            if (std::holds_alternative<AST::IntType>(*expr.type) || std::holds_alternative<AST::LongType>(*expr.type)) {
+                instructions.emplace_back(IR::DoubleToInt(res, destination));
+                return destination;
+            }
+
+            if (std::holds_alternative<AST::UIntType>(*expr.type) || std::holds_alternative<AST::ULongType>(*expr.type)) {
+                instructions.emplace_back(IR::DoubleToUInt(res, destination));
+                return destination;
+            }
+        }
+
         if (get_size_for_type(expr.target) == get_size_for_type(get_type(expr.expr))) {
             instructions.emplace_back(IR::Copy(res, destination));
         } else if (get_size_for_type(expr.target) < get_size_for_type(get_type(expr.expr))) {
@@ -396,24 +427,40 @@ public:
         auto source = gen_expr(*expr.expr, instructions);
         // TODO: refactor!
         if (expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT) {
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
+            if (std::holds_alternative<AST::DoubleType>(*get_type(expr.expr))) {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstDouble(1)), source));
+            } else {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
+            }
             return source;
         }
         if (expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT) {
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(-1)), source));
+            if (std::holds_alternative<AST::DoubleType>(*get_type(expr.expr))) {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::SUBTRACT, source, IR::Constant(AST::ConstDouble(1)), source));
+            } else {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::SUBTRACT, source, IR::Constant(AST::ConstInt(1)), source));
+            }
             return source;
         }
         // TODO: check!
         if (expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT) {
             auto temp = make_variable(expr.type);
             instructions.emplace_back(IR::Copy(source, temp));
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
+            if (std::holds_alternative<AST::DoubleType>(*get_type(expr.expr))) {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstDouble(1)), source));
+            } else {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(1)), source));
+            }
             return temp;
         }
         if (expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT) {
             auto temp = make_variable(expr.type);
             instructions.emplace_back(IR::Copy(source, temp));
-            instructions.emplace_back(IR::Binary(IR::Binary::Operator::ADD, source, IR::Constant(AST::ConstInt(-1)), source));
+            if (std::holds_alternative<AST::DoubleType>(*get_type(expr.expr))) {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::SUBTRACT, source, IR::Constant(AST::ConstDouble(1)), source));
+            } else {
+                instructions.emplace_back(IR::Binary(IR::Binary::Operator::SUBTRACT, source, IR::Constant(AST::ConstInt(1)), source));
+            }
             return temp;
         }
         auto destination = make_variable(expr.type);
@@ -512,44 +559,11 @@ public:
     }
 
     IR::Value gen_assigment(const AST::AssigmentExpr &expr, std::vector<IR::Instruction> &instructions) {
-        static auto convert_op = [](const AST::AssigmentExpr::Operator &op) {
-            switch (op) {
-                case AST::AssigmentExpr::Operator::ADD:
-                    return IR::Binary::Operator::ADD;
-                case AST::AssigmentExpr::Operator::SUBTRACT:
-                    return IR::Binary::Operator::SUBTRACT;
-                case AST::AssigmentExpr::Operator::MULTIPLY:
-                    return IR::Binary::Operator::MULTIPLY;
-                case AST::AssigmentExpr::Operator::DIVIDE:
-                    return IR::Binary::Operator::DIVIDE;
-                case AST::AssigmentExpr::Operator::REMAINDER:
-                    return IR::Binary::Operator::REMAINDER;
-                case AST::AssigmentExpr::Operator::BITWISE_AND:
-                    return IR::Binary::Operator::BITWISE_AND;
-                case AST::AssigmentExpr::Operator::BITWISE_OR:
-                    return IR::Binary::Operator::BITWISE_OR;
-                case AST::AssigmentExpr::Operator::BITWISE_XOR:
-                    return IR::Binary::Operator::BITWISE_XOR;
-                case AST::AssigmentExpr::Operator::SHIFT_LEFT:
-                    return IR::Binary::Operator::SHIFT_LEFT;
-                case AST::AssigmentExpr::Operator::SHIFT_RIGHT:
-                    return IR::Binary::Operator::SHIFT_RIGHT;
-                default:
-                    std::unreachable();
-            }
-        };
-
         auto result = gen_expr(*expr.right, instructions);
         auto lhs = gen_expr(*expr.left, instructions);
         // mess?
         auto destination = std::holds_alternative<AST::VariableExpr>(*expr.left) ? std::get<AST::VariableExpr>(*expr.left).name : std::get<AST::VariableExpr>(*std::get<AST::CastExpr>(*expr.left).expr).name;
-        if (expr.op != AST::AssigmentExpr::Operator::NONE) {
-            auto temp = make_variable(get_type(expr.left));
-            instructions.emplace_back(IR::Binary(convert_op(expr.op), lhs, result, temp));
-            instructions.emplace_back(IR::Copy(temp, IR::Variable(destination)));
-        } else {
-            instructions.emplace_back(IR::Copy(result, IR::Variable(destination)));
-        }
+        instructions.emplace_back(IR::Copy(result, IR::Variable(destination)));
         return IR::Variable(destination);
     }
 

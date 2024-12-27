@@ -74,6 +74,38 @@ public:
         std::cout << ")\n";
     }
 
+    void print_int_to_double(const IR::IntToDouble & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= int_to_double(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
+    void print_uint_to_double(const IR::UIntToDouble & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= uint_to_double(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
+    void print_double_to_int(const IR::DoubleToInt & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= double_to_int(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
+    void print_double_to_uint(const IR::DoubleToUInt & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= double_to_uint(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
     void print_instruction(const IR::Instruction &instruction) {
         std::visit(overloaded{
                        [this](const IR::Return &ins) {
@@ -111,7 +143,20 @@ public:
                 },
             [this](const IR::ZeroExtend& ins) {
                 print_zero_extend(ins);
-            }
+            },
+            [this](const IR::IntToDouble& ins) {
+                print_int_to_double(ins);
+            },
+            [this](const IR::UIntToDouble& ins) {
+                print_uint_to_double(ins);
+            },
+            [this](const IR::DoubleToInt& ins) {
+                print_double_to_int(ins);
+            },
+            [this](const IR::DoubleToUInt& ins) {
+                print_double_to_uint(ins);
+            },
+
                    }, instruction);
     }
 

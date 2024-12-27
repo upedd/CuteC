@@ -10,7 +10,7 @@
 namespace IR {
     using Value = std::variant<struct Constant, struct Variable>;
     using Instruction = std::variant<struct Return, struct Unary, struct Binary, struct Copy, struct Jump, struct
-        JumpIfZero, struct JumpIfNotZero, struct Label, struct Call, struct SignExtend, struct Truncate, struct ZeroExtend>;
+        JumpIfZero, struct JumpIfNotZero, struct Label, struct Call, struct SignExtend, struct Truncate, struct ZeroExtend, struct DoubleToInt, struct DoubleToUInt, struct IntToDouble, struct UIntToDouble>;
 
     struct Function {
         std::string name;
@@ -126,6 +126,26 @@ namespace IR {
     };
 
     struct ZeroExtend {
+        Value source;
+        Value destination;
+    };
+
+    struct DoubleToInt {
+        Value source;
+        Value destination;
+    };
+
+    struct DoubleToUInt {
+        Value source;
+        Value destination;
+    };
+
+    struct IntToDouble {
+        Value source;
+        Value destination;
+    };
+
+    struct UIntToDouble {
         Value source;
         Value destination;
     };

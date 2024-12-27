@@ -24,7 +24,11 @@ struct InitialULong {
     std::uint64_t value;
 };
 
-using Initial = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong>;
+struct InitialDouble {
+    double value;
+};
+
+using Initial = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble>;
 
 struct NoInitializer {};
 struct Tentative {};

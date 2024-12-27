@@ -17,6 +17,7 @@ int main(int argc, char *argv[]) {
     Compiler compiler;
     bool generate_object_file = false;
     bool generate_asm = false;
+    std::string args_to_assembler;
     for (int i = 1; i < argc; i++) {
         if (std::string(argv[i]) == "--lex") {
             compiler.only_lex = true;
@@ -32,6 +33,8 @@ int main(int argc, char *argv[]) {
             compiler.only_analysis = true;
         } else if (std::string(argv[i]) == "-c") {
             generate_object_file = true;
+        } else if (std::string(argv[i]).starts_with("-l")) {
+            args_to_assembler += std::string(argv[i]) + " ";
         } else {
             file_path_string = argv[i];
         }
@@ -77,9 +80,9 @@ int main(int argc, char *argv[]) {
         auto output_path = std::filesystem::path(file_path).replace_extension("");
         // temp arch only in macOS?
 #if __APPLE__
-        system(std::format("arch -x86_64 gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+        system(std::format("arch -x86_64 gcc {} -o {} {}", assembly_path.string(), output_path.string(), args_to_assembler).c_str());
 #else
-        system(std::format("gcc {} -o {}", assembly_path.string(), output_path.string()).c_str());
+        system(std::format("gcc {} -o {} {}", assembly_path.string(), output_path.string(), args_to_assembler).c_str());
 
 #endif
     }

@@ -10,11 +10,13 @@ namespace ASM {
     enum class Type {
         LongWord,
         QuadWord,
+        Double
     };
 
     struct ObjectSymbol {
         Type type;
         bool is_static;
+        bool is_constant;
     };
 
     struct FunctionSymbol {
@@ -33,13 +35,16 @@ namespace ASM {
         A,
         AE,
         B,
-        BE
+        BE,
+        NB,
+        P,
+        NP
     };
 
     using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack, struct Data>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct Binary, struct
         Idiv, struct Div, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
-        struct Push, struct Call, struct Movsx, struct MovZeroExtend>;
+        struct Push, struct Call, struct Movsx, struct MovZeroExtend, struct Cvttsd2si, struct Cvtsi2sd>;
 
     struct Function {
         std::string name;
@@ -55,8 +60,14 @@ namespace ASM {
         Initial initial_value;
     };
 
+    struct StaticConstant {
+        std::string name;
+        int alignment;
+        Initial initial_value;
+    };
+
     struct Program {
-        std::vector<std::variant<Function, StaticVariable>> items;
+        std::vector<std::variant<Function, StaticVariable, StaticConstant>> items;
     };
 
     struct Imm {
@@ -74,7 +85,17 @@ namespace ASM {
             R9,
             R10,
             R11,
-            SP
+            SP,
+            XMM0,
+            XMM1,
+            XMM2,
+            XMM3,
+            XMM4,
+            XMM5,
+            XMM6,
+            XMM7,
+            XMM14,
+            XMM15
         };
 
         Name name;
@@ -104,7 +125,8 @@ namespace ASM {
     struct Unary {
         enum class Operator {
             Neg,
-            Not
+            Not,
+            Shr
         };
         Operator op;
         Type type;
@@ -121,7 +143,8 @@ namespace ASM {
             XOR,
             SAR, // arithmetic shift
             SHR, // logical shift
-            SHL
+            SHL,
+            DIV_DOUBLE
         };
 
         Operator op;
@@ -182,6 +205,18 @@ namespace ASM {
     };
 
     struct MovZeroExtend {
+        Operand source;
+        Operand destination;
+    };
+
+    struct Cvttsd2si {
+        Type type;
+        Operand source;
+        Operand destination;
+    };
+
+    struct Cvtsi2sd {
+        Type type;
         Operand source;
         Operand destination;
     };

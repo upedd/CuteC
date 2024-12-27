@@ -31,6 +31,12 @@ static AST::TypeHandle get_common_type(const AST::TypeHandle &lhs, const AST::Ty
     if (lhs->index() == rhs->index()) {
         return lhs;
     }
+    if (std::holds_alternative<AST::DoubleType>(*lhs) ) {
+        return lhs;
+    }
+    if (std::holds_alternative<AST::DoubleType>(*rhs)) {
+        return rhs;
+    }
     if (get_size_for_type(lhs) == get_size_for_type(rhs)) {
         if (std::holds_alternative<AST::IntType>(*lhs) || std::holds_alternative<AST::LongType>(*lhs)) {
             return rhs;
@@ -89,6 +95,13 @@ void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
                 std::visit(overloaded {
                         [&initial_value](const auto& c) {
                             initial_value = InitialUInt(c.value);
+                        }
+                    }, constant.constant);
+            },
+            [&initial_value, &constant](const AST::DoubleType&) {
+                std::visit(overloaded {
+                        [&initial_value](const auto& c) {
+                            initial_value = InitialDouble(c.value);
                         }
                     }, constant.constant);
             },
@@ -165,6 +178,9 @@ void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
             [&initial_value](const AST::ConstUInt &constant) {
                 initial_value = InitialUInt(constant.value);
             }
+                ,[&initial_value](const AST::ConstDouble &constant) {
+                initial_value = InitialDouble(constant.value);
+            },
         }, std::get<AST::ConstantExpr>(*decl.expr).constant);
         } else if (!decl.expr) {
             std::visit(overloaded {
@@ -179,6 +195,9 @@ void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
                 },
                 [&initial_value](const AST::UIntType &) {
                     initial_value = InitialUInt(0);
+                },
+                [&initial_value](const AST::DoubleType &) {
+                    initial_value = InitialDouble(0);
                 },
                 [](const auto&) {}
             }, *decl.type);
@@ -370,11 +389,20 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                        check_stmt(*stmt.body);
                    },
                    [this](AST::SwitchStmt &stmt) {
+
                        check_expr(*stmt.expr);
                        check_stmt(*stmt.body);
+                       if (std::holds_alternative<AST::DoubleType>(*get_type(stmt.expr))) {
+                           errors.emplace_back("Switch controlling value must be an integer");
+                       }
                    },
                    [this](AST::CaseStmt &stmt) {
+
                        check_stmt(*stmt.stmt);
+                       check_expr(*stmt.value);
+                       if (std::holds_alternative<AST::DoubleType>(*get_type(stmt.value))) {
+                           errors.emplace_back("Case value must be an integer");
+                       }
                    },
                    [this](AST::DefaultStmt &stmt) {
                        check_stmt(*stmt.stmt);
@@ -395,6 +423,9 @@ void TypeCheckerPass::check_constant_expr(AST::ConstantExpr& expr) {
         },
         [&expr](const AST::ConstULong&) {
             expr.type = AST::Type(AST::ULongType());
+        },
+        [&expr](const AST::ConstDouble&) {
+            expr.type = AST::Type(AST::DoubleType());
         }
     }, expr.constant);
 }
@@ -409,6 +440,10 @@ void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
 
 void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
     check_expr(*expr.expr);
+    if (expr.kind == AST::UnaryExpr::Kind::COMPLEMENT && std::holds_alternative<AST::DoubleType>(*get_type(expr.expr))) {
+        errors.emplace_back("Bitwise complement operator operand must have integer type");
+    }
+
     if (expr.kind == AST::UnaryExpr::Kind::LOGICAL_NOT) {
         expr.type = AST::Type(AST::IntType());
     } else {
@@ -419,6 +454,15 @@ void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
 void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
     check_expr(*expr.left);
     check_expr(*expr.right);
+
+    auto lhs_type = get_type(expr.left);
+    auto rhs_type = get_type(expr.right);
+
+    if ((expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (std::holds_alternative<AST::DoubleType>(*lhs_type) || std::holds_alternative<AST::DoubleType>(*rhs_type))) {
+        errors.emplace_back("operator operands must have integer types");
+    }
+
+    ;
     if (expr.kind == AST::BinaryExpr::Kind::LOGICAL_AND || expr.kind == AST::BinaryExpr::Kind::LOGICAL_OR) {
         expr.type = AST::Type(AST::IntType());
         return;
@@ -430,8 +474,7 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         return;
     }
 
-    auto lhs_type = get_type(expr.left);
-    auto rhs_type = get_type(expr.right);
+
     auto common_type = get_common_type(lhs_type, rhs_type);
     convert_to(expr.left, common_type);
     convert_to(expr.right, common_type);
@@ -446,14 +489,7 @@ void TypeCheckerPass::check_assigment(AST::AssigmentExpr &expr) {
     check_expr(*expr.left);
     check_expr(*expr.right);
     auto lhs_type = get_type(expr.left);
-    if (expr.op == AST::AssigmentExpr::Operator::ADD || expr.op == AST::AssigmentExpr::Operator::SUBTRACT || expr.op == AST::AssigmentExpr::Operator::MULTIPLY || expr.op == AST::AssigmentExpr::Operator::DIVIDE || expr.op == AST::AssigmentExpr::Operator::REMAINDER || expr.op == AST::AssigmentExpr::Operator::BITWISE_OR || expr.op == AST::AssigmentExpr::Operator::BITWISE_AND || expr.op == AST::AssigmentExpr::Operator::BITWISE_XOR) {
-        auto rhs_type = get_type(expr.right);
-        auto common_type = get_common_type(lhs_type, rhs_type);
-        convert_to(expr.left, common_type);
-        convert_to(expr.right, common_type);
-    } else {
-        convert_to(expr.right, lhs_type);
-    }
+    convert_to(expr.right, lhs_type);
     expr.type = lhs_type;
 }
 

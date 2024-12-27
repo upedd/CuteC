@@ -78,7 +78,9 @@ public:
         UNSIGNED,
         SIGNED,
         UNSIGNED_INT_CONSTANT,
-        UNSIGNED_LONG_CONSTANT
+        UNSIGNED_LONG_CONSTANT,
+        DOUBLE,
+        FLOATING_POINT_CONSTANT
     };
 
     static std::string type_to_string(Type type) {
@@ -207,6 +209,10 @@ public:
                 return "UnsignedIntegerConstant";
             case Type::UNSIGNED_LONG_CONSTANT:
                 return "UnsignedLongConstant";
+            case Type::DOUBLE:
+                return "Double";
+            case Type::FLOATING_POINT_CONSTANT:
+                return "FloatingPointConstant";
         }
     }
 

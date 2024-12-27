@@ -1,6 +1,7 @@
 #ifndef CODEEMITTER_H
 #define CODEEMITTER_H
 #include <format>
+#include <cstring> // for memcpy
 
 #include "AsmTree.h"
 #include "Codegen.h"
@@ -13,12 +14,14 @@
 class CodeEmitter {
 public:
     CodeEmitter(ASM::Program program,
-                std::unordered_map<std::string, Symbol> *symbols) : asmProgram(std::move(program)), symbols(symbols) {
+                std::unordered_map<std::string, ASM::Symbol> *symbols) : asmProgram(std::move(program)), symbols(symbols) {
     }
 
     void emit() {
         emit_program(asmProgram);
     }
+
+
 
 
     void emit_program(const ASM::Program &program) {
@@ -29,6 +32,9 @@ public:
                 },
                 [this](const ASM::StaticVariable& item) {
                     emit_static_variable(item);
+                },
+                [this](const ASM::StaticConstant& item) {
+                    emit_static_constant(item);
                 }
             }, item);
         }
@@ -39,6 +45,7 @@ public:
     }
 
     void emit_function(const ASM::Function &function) {
+        assembly += "    .text\n";
         // functions names on apple must be prefixed by an underscore
         if (function.global) {
 #if __APPLE__
@@ -52,7 +59,6 @@ public:
 #else
         assembly += function.name + ":\n";
 #endif
-        assembly += "    .text\n";
         assembly += "    pushq %rbp\n";
         assembly += "    movq %rsp, %rbp\n";
         for (const auto &instruction: function.instructions) {
@@ -74,6 +80,8 @@ public:
                 return "l";
             case ASM::Type::QuadWord:
                 return "q";
+            case ASM::Type::Double:
+                return "sd";
         }
     }
     int type_reg_size(ASM::Type type) {
@@ -82,9 +90,12 @@ public:
                 return 4;
             case ASM::Type::QuadWord:
                 return 8;
+            case ASM::Type::Double:
+                return 8; //?
         }
     }
-
+    // Note: this function actually check whether the binary representation of a number is all zeros
+    // but does always return false for floating point values because there are two zero value 0.0 and -0.0
     bool is_initial_zero(const Initial & initial) {
         return std::visit(overloaded {
             [](const InitialInt& init) {
@@ -98,23 +109,9 @@ public:
             },
             [](const InitialULong& init) {
                 return init.value == 0ul;
-            }
-        }, initial);
-    }
-
-    int get_aligment(const Initial & initial) {
-        return std::visit(overloaded {
-            [](const InitialInt&) {
-                return 4;
             },
-            [](const InitialLong&) {
-                return 8;
-            },
-            [](const InitialUInt&) {
-                return 4;
-            },
-            [](const InitialULong&) {
-                return 8;
+            [](const InitialDouble&) {
+                return false;
             }
         }, initial);
     }
@@ -133,20 +130,25 @@ public:
         } else {
             assembly += "    .data\n";
         }
-        assembly += "    .balign " + std::to_string(get_aligment(variable.initial_value)) + " \n";
+        assembly += "    .balign " + std::to_string(variable.alignment) + " \n";
 #if __APPLE__
         assembly += "_" + variable.name + ":\n";
 #else
         assembly += variable.name + ":\n";
 #endif
-        if (get_initial_value(variable.initial_value) == 0) {
+        if (is_initial_zero(variable.initial_value)) {
             if (std::holds_alternative<InitialInt>(variable.initial_value) || std::holds_alternative<InitialUInt>(variable.initial_value)) {
                 assembly += "    .zero 4\n";
             } else {
                 assembly += "    .zero 8\n";
             }
         } else {
-            std::visit(overloaded {
+            emit_init(variable.initial_value);
+        }
+    }
+
+    void emit_init(const Initial& initial_value) {
+        std::visit(overloaded {
                 [this](const InitialInt& init) {
                     assembly += "    .long " + std::to_string(init.value) + "\n";
                 },
@@ -158,11 +160,45 @@ public:
                 },
                 [this](const InitialULong& init) {
                     assembly += "    .quad " + std::to_string(init.value) + "\n";
+                },
+                [this](const InitialDouble& init) {
+                    // hack to get double binary representation
+                    std::uint64_t u;
+                    std::memcpy(&u, &init.value, sizeof(init.value));
+                    assembly += "    .quad " + std::to_string(u) + "\n";
                 }
-            }, variable.initial_value);
-        }
+            }, initial_value);
     }
 
+    std::string with_local_label(std::string x) {
+#ifdef __APPLE__
+        return "L" + x;
+#else
+        return ".L" + x;
+#endif
+    }
+
+    void emit_static_constant(const ASM::StaticConstant & item) {
+#ifdef __APPLE__
+        if (item.alignment == 8) {
+            assembly += "    .literal8\n";
+            assembly += "    .balign 8\n";
+        } else { // must be 16
+            assembly += "    .literal16\n";
+            assembly += "    .balign 16\n";
+        }
+#else
+        assembly += "    .section .rodata\n";
+        assembly += "    .balign " + std::to_string(item.alignment) + "\n";
+#endif
+        assembly += with_local_label(item.name) + ":\n";
+        emit_init(item.initial_value);
+#if __APPLE__
+        if (item.alignment == 16) {
+            assembly += "    .quad 0\n";
+        }
+#endif
+    }
 
 
     void emit_call(const ASM::Call &ins) {
@@ -191,6 +227,22 @@ public:
     void emit_div(const ASM::Div & ins) {
         assembly += "    div" + type_suffix(ins.type) + " ";
         emit_operand(ins.divisor, type_reg_size(ins.type));
+        assembly += "\n";
+    }
+
+    void emit_cvtsi2sd(const ASM::Cvtsi2sd & ins) {
+        assembly += "    cvtsi2sd" + type_suffix(ins.type) + " ";
+        emit_operand(ins.source, type_reg_size(ins.type));
+        assembly += ", ";
+        emit_operand(ins.destination, type_reg_size(ins.type));
+        assembly += "\n";
+    }
+
+    void emit_cvttsd2si(const ASM::Cvttsd2si & ins) {
+        assembly += "    cvttsd2si" + type_suffix(ins.type) + " ";
+        emit_operand(ins.source, type_reg_size(ins.type));
+        assembly += ", ";
+        emit_operand(ins.destination, type_reg_size(ins.type));
         assembly += "\n";
     }
 
@@ -241,7 +293,14 @@ public:
                 [this](const ASM::Div &ins) {
                     emit_div(ins);
                 },
-            [this](const ASM::MovZeroExtend &ins) {}
+            [this](const ASM::Cvtsi2sd& ins) {
+                emit_cvtsi2sd(ins);
+            },
+            [this](const ASM::Cvttsd2si& ins) {
+                emit_cvttsd2si(ins);
+            },
+             [this](const ASM::MovZeroExtend &ins) {
+             }
                    }, instruction);
     }
 
@@ -267,6 +326,9 @@ public:
             case ASM::Unary::Operator::Neg:
                 assembly += "    neg";
                 break;
+            case ASM::Unary::Operator::Shr:
+                assembly += "    shr";
+                break;
         }
         assembly += type_suffix(ins.type) + " ";
         emit_operand(ins.operand, type_reg_size(ins.type));
@@ -283,7 +345,11 @@ public:
                 assembly += "    sub";
                 break;
             case ASM::Binary::Operator::MULT:
-                assembly += "    imul";
+                if (ins.type == ASM::Type::Double) {
+                    assembly += "    mul";
+                } else {
+                    assembly += "    imul";
+                }
                 break;
             case ASM::Binary::Operator::SHL:
                 assembly += "    shl";
@@ -298,13 +364,22 @@ public:
                 assembly += "    and";
                 break;
             case ASM::Binary::Operator::XOR:
-                assembly += "    xor";
+                if (ins.type == ASM::Type::Double) {
+                    assembly += "    xorpd ";
+                } else {
+                    assembly += "    xor";
+                }
                 break;
             case ASM::Binary::Operator::OR:
                 assembly += "    or";
                 break;
+            case ASM::Binary::Operator::DIV_DOUBLE:
+                assembly += "    div";
+                break;
         }
-        assembly += type_suffix(ins.type) + " ";
+        if (ins.type != ASM::Type::Double || ins.op != ASM::Binary::Operator::XOR) { // do not emit type suffix for xor of doubles
+            assembly += type_suffix(ins.type) + " ";
+        }
         if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL || ins.op == ASM::Binary::Operator::SAR) {
             emit_operand(ins.left, 1);
         } else {
@@ -330,7 +405,11 @@ public:
     }
 
     void emit_cmp(const ASM::Cmp &ins) {
-        assembly += "    cmp" + type_suffix(ins.type) + " ";
+        if (ins.type == ASM::Type::Double) {
+            assembly += "    comisd ";
+        } else {
+            assembly += "    cmp" + type_suffix(ins.type) + " ";
+        }
         emit_operand(ins.left, type_reg_size(ins.type));
         assembly += ", ";
         emit_operand(ins.right, type_reg_size(ins.type));
@@ -370,21 +449,26 @@ public:
             case ASM::ConditionCode::BE:
                 assembly += "be";
                 break;
+            case ASM::ConditionCode::NB:
+                assembly += "nb";
+            break;
+            case ASM::ConditionCode::P:
+                assembly += "p";
+            break;
+            case ASM::ConditionCode::NP:
+                assembly += "np";
+            break;
         }
     }
 
     void emit_jmp(const ASM::Jmp &ins) {
-        assembly += "    jmp ";
-        emit_label(ins.target);
-        assembly += "\n";
+        assembly += "    jmp " + with_local_label(ins.target) + "\n";
     }
 
     void emit_jmpcc(const ASM::JmpCC &ins) {
         assembly += "    j";
         emit_condition_code(ins.cond_code);
-        assembly += " ";
-        emit_label(ins.target);
-        assembly += "\n";
+        assembly += " " + with_local_label(ins.target) + "\n";
     }
 
     void emit_setcc(const ASM::SetCC &ins) {
@@ -396,18 +480,61 @@ public:
     }
 
     void emit_label(const ASM::Label &ins) {
-        emit_label(ins.name);
-        assembly += ":\n";
+        assembly += with_local_label(ins.name) + ":\n";
+    }
+    bool is_sse_register(const ASM::Reg& reg) {
+        switch (reg.name) {
+            case ASM::Reg::Name::XMM0:
+            case ASM::Reg::Name::XMM1:
+            case ASM::Reg::Name::XMM2:
+            case ASM::Reg::Name::XMM3:
+            case ASM::Reg::Name::XMM4:
+            case ASM::Reg::Name::XMM5:
+            case ASM::Reg::Name::XMM6:
+            case ASM::Reg::Name::XMM7:
+            case ASM::Reg::Name::XMM14:
+            case ASM::Reg::Name::XMM15:
+                return true;
+            default:
+                return false;
+        }
     }
 
-    void emit_label(const std::string &name) {
-#ifdef __APPLE__
-        assembly += "L" + name;
-#else
-        assembly += ".L" + name;
-#endif
-    }
 
+    void emit_sse_register(const ASM::Reg& reg) {
+        switch (reg.name) {
+            case ASM::Reg::Name::XMM0:
+                assembly += "%xmm0";
+                break;
+            case ASM::Reg::Name::XMM1:
+                assembly += "%xmm1";
+                break;
+            case ASM::Reg::Name::XMM2:
+                assembly += "%xmm2";
+            break;
+            case ASM::Reg::Name::XMM3:
+                assembly += "%xmm3";
+            break;
+            case ASM::Reg::Name::XMM4:
+                assembly += "%xmm4";
+            break;
+            case ASM::Reg::Name::XMM5:
+                assembly += "%xmm5";
+            break;
+            case ASM::Reg::Name::XMM6:
+                assembly += "%xmm6";
+            break;
+            case ASM::Reg::Name::XMM7:
+                assembly += "%xmm7";
+            break;
+            case ASM::Reg::Name::XMM14:
+                assembly += "%xmm14";
+            break;
+            case ASM::Reg::Name::XMM15:
+                assembly += "%xmm15";
+            break;
+        }
+    }
 
     void emit_operand(const ASM::Operand &operand, int reg_size = 4) {
         std::visit(overloaded{
@@ -415,7 +542,9 @@ public:
                            emit_imm(operand);
                        },
                        [this, reg_size](const ASM::Reg &operand) {
-                           if (reg_size == 1) {
+                           if (is_sse_register(operand)) {
+                               emit_sse_register(operand);
+                           } else if (reg_size == 1) {
                                emit_1byte_register(operand);
                            } else if (reg_size == 8) {
                                emit_8byte_register(operand);
@@ -439,6 +568,13 @@ public:
         assembly += std::format("${}", operand.value);
     }
     void emit_data(const ASM::Data & data) {
+        if (symbols->contains(data.identifier)) {
+            auto& symbol = symbols->at(data.identifier);
+            if (std::holds_alternative<ASM::ObjectSymbol>(symbol) && std::get<ASM::ObjectSymbol>(symbol).is_constant) {
+                assembly += with_local_label(data.identifier) + "(%rip)";
+                return;
+            }
+        }
 #ifdef __APPLE__
         assembly += "_" + data.identifier + "(%rip)";
 #else
@@ -557,7 +693,7 @@ public:
 
 private:
     ASM::Program asmProgram;
-    std::unordered_map<std::string, Symbol> *symbols;
+    std::unordered_map<std::string, ASM::Symbol> *symbols;
 };
 
 #endif //CODEEMITTER_H
