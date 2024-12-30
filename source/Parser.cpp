@@ -85,28 +85,12 @@ void Parser::parse() {
     }
 }
 
-AST::FunctionDecl Parser::function_decl(std::pair<AST::Type, AST::StorageClass>& type_and_storage_class) {
-    Token name = expect(Token::Type::IDENTIFIER);
-    expect(Token::Type::LEFT_PAREN);
-    std::vector<std::string> arguments;
-    std::vector<AST::TypeHandle> argument_types;
-    if (!match(Token::Type::VOID)) {
-        do {
-            std::vector<Token::Type> types;
-            while (is_type_specifier(peek().type)) {
-                types.emplace_back(consume().type);
-            }
-            argument_types.emplace_back(parse_type(types));
-            auto argument = expect(Token::Type::IDENTIFIER);
-            arguments.emplace_back(argument.lexeme);
-        } while (match(Token::Type::COMMA));
-    }
-    expect(Token::Type::RIGHT_PAREN);
+AST::FunctionDecl Parser::function_decl(const std::string& name, const AST::Type& type, const AST::StorageClass storage_class, const std::vector<std::string>& params) {
     if (match(Token::Type::SEMICOLON)) {
-        return AST::FunctionDecl(name.lexeme, std::move(arguments), {}, AST::TypeHandle(AST::FunctionType {std::move(argument_types), std::move(type_and_storage_class.first) }), type_and_storage_class.second);
+        return AST::FunctionDecl(name, params, {}, type, storage_class);
     }
     expect(Token::Type::LEFT_BRACE);
-    return AST::FunctionDecl(name.lexeme, std::move(arguments), block(), AST::TypeHandle(AST::FunctionType {std::move(argument_types), std::move(type_and_storage_class.first) }), type_and_storage_class.second);
+    return AST::FunctionDecl(name, params, block(), type, storage_class);
 }
 
 
@@ -117,23 +101,102 @@ AST::BlockItem Parser::block_item() {
     return statement();
 }
 
-AST::DeclHandle Parser::declaration() {
-    auto type_and_storage_class = parse_type_and_storage_class();
-
-    if (peek(1).type == Token::Type::LEFT_PAREN) {
-        return std::make_unique<AST::Declaration>(function_decl(type_and_storage_class));
+AST::DeclaratorHandle Parser::simple_declarator() {
+    if (match(Token::Type::LEFT_PAREN)) {
+        auto declarator = parse_declarator();
+        expect(Token::Type::RIGHT_PAREN);
+        return declarator;
     }
-    return std::make_unique<AST::Declaration>(variable_declaration(type_and_storage_class));
+    auto identifier = expect(Token::Type::IDENTIFIER);
+    return std::make_unique<AST::Declarator>(AST::Identifier(identifier.lexeme));
 }
 
-AST::VariableDecl Parser::variable_declaration(std::pair<AST::Type, AST::StorageClass>& type_and_storage_class) {
-    auto identifier = expect(Token::Type::IDENTIFIER);
+// TODO: use elsewhere!
+std::vector<AST::Param> Parser::parse_param_list() {
+    if (match(Token::Type::VOID)) {
+        expect(Token::Type::RIGHT_PAREN);
+        return {};
+    }
+    std::vector<AST::Param> params;
+    do {
+        std::vector<Token::Type> types;
+        while (is_type_specifier(peek().type)) {
+            types.emplace_back(consume().type);
+        }
+        auto type = parse_type(types);
+        auto declarator = parse_declarator();
+        params.emplace_back(std::move(declarator), AST::TypeHandle(std::move(type)));
+    } while (match(Token::Type::COMMA));
+    expect(Token::Type::RIGHT_PAREN);
+    return params;
+}
+
+AST::DeclaratorHandle Parser::parse_direct_declarator() {
+    auto declarator = simple_declarator();
+    if (match(Token::Type::LEFT_PAREN)) {
+        auto params = parse_param_list();
+        return std::make_unique<AST::Declarator>(AST::FunctionDeclarator(std::move(declarator), std::move(params)));
+    }
+    return std::move(declarator);
+}
+
+AST::DeclaratorHandle Parser::parse_declarator() {
+    if (match(Token::Type::ASTERISK)) {
+        return std::make_unique<AST::Declarator>(AST::PointerDeclarator(parse_declarator()));
+    }
+    return parse_direct_declarator();
+}
+
+std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> Parser::process_declarator(
+    const AST::Declarator &declarator, const AST::Type &type) {
+    return std::visit(overloaded {
+        [&type](const AST::Identifier& identifier) -> std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> {
+            return {identifier.name, type, {}};
+        },
+        [&type, this](const AST::PointerDeclarator& pointer) -> std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> {
+            return process_declarator(*pointer.declarator, AST::PointerType(type));
+        },
+        [&type, this](const AST::FunctionDeclarator& function) -> std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> {
+            if (!std::holds_alternative<AST::Identifier>(*function.declarator)) {
+                errors.emplace_back("Invalid function declarator");
+            }
+            std::vector<std::string> param_names;
+            std::vector<AST::TypeHandle> param_types;
+            for (const auto& param : function.params) {
+                auto [param_name, param_type, _] = process_declarator(*param.declarator, *param.type);
+                if (std::holds_alternative<AST::FunctionType>(*param_type)) {
+                    errors.emplace_back("Function pointers in parameters aren't supported!");
+                }
+                param_names.emplace_back(param_name);
+                param_types.emplace_back(param_type);
+            }
+
+            auto name = std::get<AST::Identifier>(*function.declarator).name;
+            auto fun_type = AST::FunctionType{param_types, type};
+            return {name, {fun_type}, param_names};
+        },
+        }, declarator);
+}
+
+AST::DeclHandle Parser::declaration() {
+    auto type_and_storage_class = parse_type_and_storage_class();
+    auto declarator = parse_declarator();
+    auto [name, type, params] = process_declarator(*declarator, type_and_storage_class.first);
+    if (std::holds_alternative<AST::FunctionType>(*type)) {
+        return std::make_unique<AST::Declaration>(function_decl(name, *type, type_and_storage_class.second, params));
+    }
+    return std::make_unique<AST::Declaration>(variable_declaration(name, *type, type_and_storage_class.second));
+}
+
+
+
+AST::VariableDecl Parser::variable_declaration(const std::string& name, const AST::Type& type, const AST::StorageClass storage_class) {
     AST::ExprHandle expr;
     if (match(Token::Type::EQUAL)) {
         expr = expression();
     }
     expect(Token::Type::SEMICOLON);
-    return AST::VariableDecl(identifier.lexeme, std::move(expr), std::move(type_and_storage_class.first), type_and_storage_class.second);
+    return AST::VariableDecl(name, std::move(expr), type, storage_class);
 }
 
 AST::StmtHandle Parser::labeled_stmt(const Token &identifier) {
@@ -397,13 +460,25 @@ AST::ExprHandle Parser::expression(Precedence min_precedence) {
         if (get_precedence(token.type) == Precedence::ASSIGMENT) {
             auto op = compound_operator();
             auto right = expression(get_precedence(token.type));
-            if (!std::holds_alternative<AST::VariableExpr>(*left)) {
-                errors.emplace_back("Left operand of assigment must be a lvalue");
-            }
-            auto var_expr = std::get<AST::VariableExpr>(*left);
             if (op) {
-                auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::make_unique<AST::Expr>(AST::VariableExpr(var_expr.name)), std::move(right)));
-                left  = std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(binary)));
+                // TODO: move desugaring into separate pass
+                std::vector<AST::ExprHandle> build;
+                // only dereference and variable allowed as lhs
+                if (std::holds_alternative<AST::DereferenceExpr>(*left)) {
+                    auto& dereference_expr = std::get<AST::DereferenceExpr>(*left);
+                    auto temp_var = make_temp_name();
+                    build.emplace_back(std::make_unique<AST::Expr>(AST::TemporaryExpr(temp_var, std::move(dereference_expr.expr))));
+                    auto lvalue = std::make_unique<AST::Expr>(AST::DereferenceExpr(std::make_unique<AST::Expr>(AST::VariableExpr(temp_var))));
+                    auto lhs = std::make_unique<AST::Expr>(AST::DereferenceExpr(std::make_unique<AST::Expr>(AST::VariableExpr(temp_var))));
+                    auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::move(lhs), std::move(right)));
+                    build.emplace_back(std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(lvalue), std::move(binary))));
+                } else if (std::holds_alternative<AST::VariableExpr>(*left)) {
+                    auto& var_expr = std::get<AST::VariableExpr>(*left);
+                    auto lhs = std::make_unique<AST::Expr>(AST::VariableExpr(var_expr.name));
+                    auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::move(lhs), std::move(right)));
+                    build.emplace_back(std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(binary))));
+                }
+                left  = std::make_unique<AST::Expr>(AST::CompoundExpr(std::move(build)));
             } else {
                 left  = std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(right)));
             }
@@ -547,6 +622,33 @@ AST::ExprHandle Parser::constant(const Token& token) {
     }
 }
 
+AST::AbstractDeclaratorHandle Parser::parse_abstract_declarator() {
+    if (match(Token::Type::ASTERISK)) {
+        return std::make_unique<AST::AbstractDeclarator>(AST::AbstractPointer(parse_abstract_declarator()));
+    }
+    if (match(Token::Type::LEFT_PAREN)) {
+        auto abstract_declarator = parse_abstract_declarator();
+        expect(Token::Type::RIGHT_PAREN);
+        return abstract_declarator;
+    }
+    return std::make_unique<AST::AbstractDeclarator>(AST::AbstractBase());
+}
+
+AST::TypeHandle Parser::process_abstract_declarator(const AST::AbstractDeclarator& declarator, const AST::Type& type) {
+    return std::visit(overloaded {
+        [&type, this](const AST::AbstractPointer& ptr)  {
+            auto derived = AST::PointerType(type);
+           if (ptr.declarator) {
+               return process_abstract_declarator(*ptr.declarator, derived);
+           }
+            return AST::TypeHandle{derived};
+        },
+        [&type](const AST::AbstractBase&) {
+            return AST::TypeHandle{type};
+        }
+    }, declarator);
+}
+
 AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
@@ -561,7 +663,9 @@ AST::ExprHandle Parser::primary(const Token &token) {
             while(is_type_specifier(peek().type)) {
                 types.emplace_back(consume().type);
             }
-            auto type = parse_type(types);
+            auto base_type = parse_type(types);
+            auto declarator = parse_abstract_declarator();
+            auto type = process_abstract_declarator(*declarator, base_type);
             expect(Token::Type::RIGHT_PAREN);
             auto expr = factor();
             return std::make_unique<AST::Expr>(AST::CastExpr(type, std::move(expr)));
@@ -617,6 +721,16 @@ AST::ExprHandle Parser::factor() {
     if (token.type == Token::Type::BANG) {
         auto expr = factor();
         return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::LOGICAL_NOT, std::move(expr)));
+    }
+
+    if (token.type == Token::Type::ASTERISK) {
+        auto expr = factor();
+        return std::make_unique<AST::Expr>(AST::DereferenceExpr(std::move(expr)));
+    }
+
+    if (token.type == Token::Type::AND) {
+        auto expr = factor();
+        return std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(expr)));
     }
 
     if (token.type == Token::Type::PLUS_PLUS) {

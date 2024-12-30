@@ -137,6 +137,23 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                     [this](AST::CastExpr& expr) {
                         resolve_expression(*expr.expr);
                     },
+                    [this](AST::DereferenceExpr &expr) {
+                        resolve_expression(*expr.expr);
+                    },
+                    [this](AST::AddressOfExpr& expr) {
+                        resolve_expression(*expr.expr);
+                    },
+                    [this](AST::TemporaryExpr& expr) {
+                        expr.identifier = declare(Identifier(expr.identifier, false)).name;
+                        if (expr.init) {
+                            resolve_expression(*expr.init);
+                        }
+                    },
+                    [this](AST::CompoundExpr& expr) {
+                        for (auto& ex : expr.exprs) {
+                            resolve_expression(*ex);
+                        }
+                    },
                    [this](auto &) {
                    }
                }, expr);
@@ -149,13 +166,6 @@ void VariableResolutionPass::resolve_conditional(AST::ConditionalExpr &expr) {
 }
 
 void VariableResolutionPass::resolve_unary(AST::UnaryExpr &expr) {
-    if (expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT ||
-        expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT) {
-        if (!std::holds_alternative<AST::VariableExpr>(*expr.expr)) {
-            errors.emplace_back("Expected an lvalue.");
-        }
-    }
-
     resolve_expression(*expr.expr);
 }
 
@@ -165,9 +175,6 @@ void VariableResolutionPass::resolve_binary(AST::BinaryExpr &expr) {
 }
 
 void VariableResolutionPass::resolve_assigment(AST::AssigmentExpr &expr) {
-    if (!std::holds_alternative<AST::VariableExpr>(*expr.left)) {
-        errors.emplace_back("Expected an lvalue.");
-    }
     resolve_expression(*expr.left);
     resolve_expression(*expr.right);
 }

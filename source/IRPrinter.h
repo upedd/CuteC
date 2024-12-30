@@ -106,6 +106,31 @@ public:
         std::cout << ")\n";
     }
 
+    void print_get_address(const IR::GetAddress & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= get_address(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
+    void print_load(const IR::Load & ins) {
+        print_indent();
+        print_value(ins.destination);
+        std::cout << "= load(";
+        print_value(ins.source_ptr);
+        std::cout << ")\n";
+    }
+
+    void print_store(const IR::Store & ins) {
+        // better printing!
+        print_indent();
+        print_value(ins.destination_ptr);
+        std::cout << "= store(";
+        print_value(ins.source);
+        std::cout << ")\n";
+    }
+
     void print_instruction(const IR::Instruction &instruction) {
         std::visit(overloaded{
                        [this](const IR::Return &ins) {
@@ -156,6 +181,15 @@ public:
             [this](const IR::DoubleToUInt& ins) {
                 print_double_to_uint(ins);
             },
+            [this](const IR::GetAddress& ins) {
+                print_get_address(ins);
+            },
+            [this](const IR::Load& ins) {
+                print_load(ins);
+            },
+            [this](const IR::Store& ins) {
+                print_store(ins);
+            }
 
                    }, instruction);
     }

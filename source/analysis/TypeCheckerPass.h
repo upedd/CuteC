@@ -48,17 +48,17 @@ struct StaticAttributes {
 struct LocalAttributes {};
 
 using IdentifierAttributes = std::variant<FunctionAttributes, StaticAttributes, LocalAttributes>;
-inline AST::TypeHandle get_type(const AST::ExprHandle &expr) {
+inline AST::TypeHandle get_type(const AST::Expr &expr) {
     return std::visit(overloaded {
         [](const auto& expr) {
             return expr.type;
         }
-    }, *expr);
+    }, expr);
 }
 
 
 inline void convert_to(AST::ExprHandle& expr, const AST::TypeHandle& type) {
-    if (get_type(expr)->index() == type->index()) return;
+    if (get_type(*expr)->index() == type->index()) return;
     auto cast = AST::CastExpr(type, std::move(expr));
     cast.type = type;
     expr = std::make_unique<AST::Expr>(std::move(cast));
@@ -76,6 +76,9 @@ inline int get_size_for_type(const AST::TypeHandle& type) {
             return 8;
         },
         [](const AST::ULongType&) {
+            return 8;
+        },
+        [](const AST::PointerType&) {
             return 8;
         },
         [](const auto&) {
@@ -133,11 +136,19 @@ public:
 
     void check_unary( AST::UnaryExpr & expr);
 
+    AST::TypeHandle get_common_pointer_type(const AST::ExprHandle &lhs, const AST::ExprHandle &rhs);
+
     void check_binary(AST::BinaryExpr &expr);
+
+    void convert_by_assigment(AST::ExprHandle &expr, AST::TypeHandle target);
 
     void check_assigment(AST::AssigmentExpr & expr);
 
     void check_conditional(AST::ConditionalExpr & expr);
+
+    void check_dereference(AST::DereferenceExpr & expr);
+
+    void check_address_of(AST::AddressOfExpr & expr);
 
     std::vector<Error> errors;
 

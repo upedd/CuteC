@@ -116,7 +116,7 @@ void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {
         return;
     }
     auto &current_switch = *switches.back();
-    auto expr_type = get_type(current_switch.expr);
+    auto expr_type = get_type(*current_switch.expr);
     auto& value = std::get<AST::ConstantExpr>(*stmt.value).constant;
     convert_const(value, expr_type);
     if (current_switch.cases.contains(value)) {

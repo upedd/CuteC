@@ -41,10 +41,10 @@ namespace ASM {
         NP
     };
 
-    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Stack, struct Data>;
+    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Memory, struct Data>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct Binary, struct
         Idiv, struct Div, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
-        struct Push, struct Call, struct Movsx, struct MovZeroExtend, struct Cvttsd2si, struct Cvtsi2sd>;
+        struct Push, struct Call, struct Movsx, struct MovZeroExtend, struct Cvttsd2si, struct Cvtsi2sd, struct Lea>;
 
     struct Function {
         std::string name;
@@ -86,6 +86,7 @@ namespace ASM {
             R10,
             R11,
             SP,
+            BP,
             XMM0,
             XMM1,
             XMM2,
@@ -105,7 +106,8 @@ namespace ASM {
         std::string name;
     };
 
-    struct Stack {
+    struct Memory {
+        Reg reg;
         int offset;
     };
 
@@ -217,6 +219,11 @@ namespace ASM {
 
     struct Cvtsi2sd {
         Type type;
+        Operand source;
+        Operand destination;
+    };
+
+    struct Lea {
         Operand source;
         Operand destination;
     };

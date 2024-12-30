@@ -64,7 +64,7 @@ public:
             return {};
         }
 
-        TypeCheckerPass type_checker(&parser.program);\
+        TypeCheckerPass type_checker(&parser.program);
         type_checker.run();
         if (!type_checker.errors.empty()) {
             std::cerr << "type check failed!" << '\n';

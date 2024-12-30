@@ -25,13 +25,24 @@ public:
 
     void parse();
 
-    AST::FunctionDecl function_decl(std::pair<AST::Type, AST::StorageClass> &type_and_storage_class);
+    AST::FunctionDecl function_decl(const std::string &name, const AST::Type &type, AST::StorageClass storage_class, const std::vector<std::string> &params);
 
     AST::BlockItem block_item();
 
+    AST::DeclaratorHandle simple_declarator();
+
+    std::vector<AST::Param> parse_param_list();
+
+    AST::DeclaratorHandle parse_direct_declarator();
+
+    AST::DeclaratorHandle parse_declarator();
+
+    std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> process_declarator(
+        const AST::Declarator &declarator, const AST::Type &type);
+
     AST::DeclHandle declaration();
 
-    AST::VariableDecl variable_declaration(std::pair<AST::Type, AST::StorageClass> &type_and_storage_class);
+    AST::VariableDecl variable_declaration(const std::string &name, const AST::Type &type, AST::StorageClass storage_class);
 
     AST::StmtHandle labeled_stmt(const Token &identifer);
 
@@ -79,6 +90,10 @@ public:
 
     AST::ExprHandle constant(const Token &token);
 
+    AST::AbstractDeclaratorHandle parse_abstract_declarator();
+
+    AST::TypeHandle process_abstract_declarator(const AST::AbstractDeclarator &declarator, const AST::Type &type);
+
     AST::ExprHandle primary(const Token &token);
 
     std::vector<AST::ExprHandle> arguments_list();
@@ -87,6 +102,13 @@ public:
 
     AST::Program program{};
     std::vector<Error> errors{};
+
+    // used for variables used in desugaring
+    std::string make_temp_name() {
+        return "desugar." + std::to_string(temp_cnt++);
+    }
+
+    int temp_cnt = 0;
 
 private:
     Token peek(int n = 0);

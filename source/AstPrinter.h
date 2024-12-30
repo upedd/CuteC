@@ -331,6 +331,52 @@ public:
         println(")");
     }
 
+    void address_of_expr(const AST::AddressOfExpr & expr) {
+        println("AddressOfExpr(");
+        with_indent([this, &expr] {
+            println("expr=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.expr);
+            });
+        });
+        println(")");
+    }
+
+    void dereference_expr(const AST::DereferenceExpr & expr) {
+        println("DereferenceExpr(");
+        with_indent([this, &expr] {
+            println("expr=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.expr);
+            });
+        });
+        println(")");
+    }
+
+    void compound_expr(const AST::CompoundExpr & expr) {
+        println("CompoundExpr(");
+        with_indent([this, &expr] {
+            for (const auto &expr: expr.exprs) {
+                visit_expr(*expr);
+            }
+        });
+        println(")");
+    }
+
+    void temporary_expr(const AST::TemporaryExpr & expr) {
+        println("TemporaryExpr(");
+        with_indent([this, &expr] {
+            println("name=" + expr.identifier);
+            if (expr.init) {
+                println("expr=");
+                with_indent([this, &expr] {
+                    visit_expr(*expr.init);
+                });
+            }
+        });
+        println(")");
+    }
+
     void visit_expr(const Expr &expr) {
         std::visit(overloaded{
                        [this](const ConstantExpr &expr) {
@@ -354,6 +400,18 @@ public:
                        [this](const FunctionCall &expr) {
                            function_call_expr(expr);
                        },
+                        [this](const AddressOfExpr& expr) {
+                            address_of_expr(expr);
+                        },
+                        [this](const DereferenceExpr &expr) {
+                            dereference_expr(expr);
+                        },
+                        [this](const CompoundExpr& expr) {
+                            compound_expr(expr);
+                        },
+                        [this](const TemporaryExpr& expr) {
+                            temporary_expr(expr);
+                        },
                         [this](const CastExpr& expr) {}
                    }, expr);
     }

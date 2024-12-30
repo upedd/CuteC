@@ -246,6 +246,14 @@ public:
         assembly += "\n";
     }
 
+    void emit_lea(const ASM::Lea & ins) {
+        assembly += "    leaq ";
+        emit_operand(ins.source, 8);
+        assembly += ", ";
+        emit_operand(ins.destination, 8);
+        assembly += "\n";
+    }
+
     void emit_instruction(const ASM::Instruction &instruction) {
         std::visit(overloaded{
                        [this](const ASM::Mov &ins) {
@@ -298,6 +306,9 @@ public:
             },
             [this](const ASM::Cvttsd2si& ins) {
                 emit_cvttsd2si(ins);
+            },
+            [this](const ASM::Lea& ins) {
+                emit_lea(ins);
             },
              [this](const ASM::MovZeroExtend &ins) {
              }
@@ -482,6 +493,7 @@ public:
     void emit_label(const ASM::Label &ins) {
         assembly += with_local_label(ins.name) + ":\n";
     }
+    // duplicate!
     bool is_sse_register(const ASM::Reg& reg) {
         switch (reg.name) {
             case ASM::Reg::Name::XMM0:
@@ -552,8 +564,8 @@ public:
                                emit_4byte_register(operand);
                            }
                        },
-                       [this](const ASM::Stack &operand) {
-                           emit_stack(operand);
+                       [this](const ASM::Memory &operand) {
+                           emit_memory(operand);
                        },
                        [this](const ASM::Data& operand) {
                            emit_data(operand);
@@ -614,6 +626,9 @@ public:
             case ASM::Reg::Name::SP:
                 assembly += "%rsp";
                 break;
+            case ASM::Reg::Name::BP:
+                assembly += "%rbp";
+            break;
         }
     }
 
@@ -649,6 +664,9 @@ public:
             case ASM::Reg::Name::SP:
                 assembly += "%esp";
             break;
+            case ASM::Reg::Name::BP:
+                assembly += "%ebp";
+            break;
         }
     }
 
@@ -681,11 +699,17 @@ public:
             case ASM::Reg::Name::SP:
                 assembly += "%sp";
                 break;
+            case ASM::Reg::Name::BP:
+                assembly += "%bp";
+            break;
         }
     }
 
-    void emit_stack(const ASM::Stack &operand) {
-        assembly += std::format("{}(%rbp)", operand.offset);
+    void emit_memory(const ASM::Memory &operand) {
+        assembly += std::to_string(operand.offset);
+        assembly += "(";
+        emit_8byte_register(operand.reg);
+        assembly += ")";
     }
 
 
