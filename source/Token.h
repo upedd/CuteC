@@ -80,7 +80,9 @@ public:
         UNSIGNED_INT_CONSTANT,
         UNSIGNED_LONG_CONSTANT,
         DOUBLE,
-        FLOATING_POINT_CONSTANT
+        FLOATING_POINT_CONSTANT,
+        LEFT_BRACKET,
+        RIGHT_BRACKET
     };
 
     static std::string type_to_string(Type type) {
@@ -213,6 +215,10 @@ public:
                 return "Double";
             case Type::FLOATING_POINT_CONSTANT:
                 return "FloatingPointConstant";
+            case Type::LEFT_BRACKET:
+                return "LeftBracket";
+            case Type::RIGHT_BRACKET:
+                return "RightBracket";
         }
     }
 

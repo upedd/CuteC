@@ -19,7 +19,7 @@ namespace AST {
         struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct
         DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
-        AssigmentExpr, struct ConditionalExpr, struct FunctionCall, struct CastExpr, struct DereferenceExpr, struct AddressOfExpr, struct CompoundExpr, struct TemporaryExpr>;
+        AssigmentExpr, struct ConditionalExpr, struct FunctionCall, struct CastExpr, struct DereferenceExpr, struct AddressOfExpr, struct CompoundExpr, struct TemporaryExpr, struct SubscriptExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
 
@@ -27,15 +27,19 @@ namespace AST {
     using DeclHandle = std::unique_ptr<Declaration>;
 
 
-    using Declarator = std::variant<struct Identifier, struct PointerDeclarator, struct FunctionDeclarator>;
+    using Declarator = std::variant<struct Identifier, struct PointerDeclarator, struct FunctionDeclarator, struct ArrayDeclarator>;
     using DeclaratorHandle = std::unique_ptr<Declarator>;
 
-    using AbstractDeclarator = std::variant<struct AbstractBase, struct AbstractPointer>;
+    using AbstractDeclarator = std::variant<struct AbstractBase, struct AbstractPointer, struct AbstractArray>;
     using AbstractDeclaratorHandle = std::unique_ptr<AbstractDeclarator>;
 
     struct AbstractBase {};
     struct AbstractPointer {
         AbstractDeclaratorHandle declarator;
+    };
+    struct AbstractArray {
+        AbstractDeclaratorHandle declarator;
+        std::uint64_t size;
     };
 
     using BlockItem = std::variant<StmtHandle, DeclHandle>;
@@ -46,9 +50,18 @@ namespace AST {
         EXTERN
     };
 
-
-    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct DoubleType, struct FunctionType, struct PointerType>;
+    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct DoubleType, struct FunctionType, struct PointerType, struct ArrayType>;
     using TypeHandle = box<Type>;
+
+    using Initializer = std::variant<struct ScalarInit, struct CompoundInit>;
+    using InitializerHandle = std::unique_ptr<Initializer>;
+    struct ScalarInit {
+        ExprHandle value;
+    };
+
+    struct CompoundInit {
+        std::vector<InitializerHandle> init;
+    };
 
     struct Identifier {
         std::string name;
@@ -68,6 +81,11 @@ namespace AST {
         std::vector<Param> params;
     };
 
+    struct ArrayDeclarator {
+        DeclaratorHandle declarator;
+        std::uint64_t size;
+    };
+
     struct EmptyType {};
     struct IntType {};
     struct LongType {};
@@ -82,10 +100,15 @@ namespace AST {
         TypeHandle referenced_type;
     };
 
+    struct ArrayType {
+        TypeHandle element_type;
+        std::uint64_t size;
+    };
+
 
     struct VariableDecl {
         std::string name;
-        ExprHandle expr;
+        InitializerHandle init;
         TypeHandle type;
         StorageClass storage_class;
     };
@@ -321,11 +344,17 @@ namespace AST {
         std::vector<ExprHandle> exprs;
         TypeHandle type;
     };
-
+    // also only used while desugaring
     struct TemporaryExpr {
         std::string identifier;
         ExprHandle init;
         TypeHandle type; // note that it doesn't actually have any type
+    };
+
+    struct SubscriptExpr {
+        ExprHandle expr;
+        ExprHandle index;
+        TypeHandle type;
     };
 }
 

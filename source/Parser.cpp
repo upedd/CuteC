@@ -137,6 +137,26 @@ AST::DeclaratorHandle Parser::parse_direct_declarator() {
         auto params = parse_param_list();
         return std::make_unique<AST::Declarator>(AST::FunctionDeclarator(std::move(declarator), std::move(params)));
     }
+    if (match(Token::Type::LEFT_BRACKET)) {
+        do {
+            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+                auto c = constant(consume()); // TODO: refactor and get constant directly
+                expect(Token::Type::RIGHT_BRACKET);
+                std::uint64_t value;
+                std::visit(overloaded {
+                    [](const AST::ConstDouble&) {
+                        std::unreachable();
+                    },
+                    [&value](const auto& c) {
+                        value = c.value;
+                    }
+                }, std::get<AST::ConstantExpr>(*c).constant);
+                declarator = std::make_unique<AST::Declarator>(AST::ArrayDeclarator(std::move(declarator), value));
+            } else {
+                errors.emplace_back("Expected an integer constant in a array size declaration");
+            }
+        } while (match(Token::Type::LEFT_BRACKET));
+    }
     return std::move(declarator);
 }
 
@@ -175,6 +195,9 @@ std::tuple<std::string, AST::TypeHandle, std::vector<std::string>> Parser::proce
             auto fun_type = AST::FunctionType{param_types, type};
             return {name, {fun_type}, param_names};
         },
+        [&type, this](const AST::ArrayDeclarator& array) {
+            return process_declarator(*array.declarator, AST::ArrayType(type, array.size));
+        }
         }, declarator);
 }
 
@@ -188,12 +211,23 @@ AST::DeclHandle Parser::declaration() {
     return std::make_unique<AST::Declaration>(variable_declaration(name, *type, type_and_storage_class.second));
 }
 
-
+AST::InitializerHandle Parser::initializer() {
+    if (match(Token::Type::LEFT_BRACE)) {
+        std::vector<AST::InitializerHandle> init;
+        do {
+            if (!init.empty() && peek().type == Token::Type::RIGHT_BRACE) break; // trailling comma
+            init.emplace_back(initializer());
+        } while (match(Token::Type::COMMA));
+        expect(Token::Type::RIGHT_BRACE);
+        return std::make_unique<AST::Initializer>(AST::CompoundInit(std::move(init)));
+    }
+    return std::make_unique<AST::Initializer>(AST::ScalarInit(expression()));
+}
 
 AST::VariableDecl Parser::variable_declaration(const std::string& name, const AST::Type& type, const AST::StorageClass storage_class) {
-    AST::ExprHandle expr;
+    AST::InitializerHandle expr;
     if (match(Token::Type::EQUAL)) {
-        expr = expression();
+        expr = initializer();
     }
     expect(Token::Type::SEMICOLON);
     return AST::VariableDecl(name, std::move(expr), type, storage_class);
@@ -626,25 +660,45 @@ AST::AbstractDeclaratorHandle Parser::parse_abstract_declarator() {
     if (match(Token::Type::ASTERISK)) {
         return std::make_unique<AST::AbstractDeclarator>(AST::AbstractPointer(parse_abstract_declarator()));
     }
+    auto abstract_declarator = std::make_unique<AST::AbstractDeclarator>(AST::AbstractBase());
     if (match(Token::Type::LEFT_PAREN)) {
-        auto abstract_declarator = parse_abstract_declarator();
+        abstract_declarator = parse_abstract_declarator();
         expect(Token::Type::RIGHT_PAREN);
-        return abstract_declarator;
     }
-    return std::make_unique<AST::AbstractDeclarator>(AST::AbstractBase());
+    // overlap!
+    if (match(Token::Type::LEFT_BRACKET)) {
+        do {
+            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+                auto c = constant(consume()); // TODO: refactor and get constant directly
+                expect(Token::Type::RIGHT_BRACKET);
+                std::uint64_t value;
+                std::visit(overloaded {
+                    [](const AST::ConstDouble&) {
+                        std::unreachable();
+                    },
+                    [&value](const auto& c) {
+                        value = c.value;
+                    }
+                }, std::get<AST::ConstantExpr>(*c).constant);
+                abstract_declarator = std::make_unique<AST::AbstractDeclarator>(AST::AbstractArray(std::move(abstract_declarator), value));
+            } else {
+                errors.emplace_back("Expected an integer constant in a array size declaration");
+            }
+        } while (match(Token::Type::LEFT_BRACKET));
+    }
+    return abstract_declarator;
 }
 
 AST::TypeHandle Parser::process_abstract_declarator(const AST::AbstractDeclarator& declarator, const AST::Type& type) {
     return std::visit(overloaded {
         [&type, this](const AST::AbstractPointer& ptr)  {
-            auto derived = AST::PointerType(type);
-           if (ptr.declarator) {
-               return process_abstract_declarator(*ptr.declarator, derived);
-           }
-            return AST::TypeHandle{derived};
+            return process_abstract_declarator(*ptr.declarator, AST::PointerType(type));
         },
         [&type](const AST::AbstractBase&) {
             return AST::TypeHandle{type};
+        },
+        [&type, this](const AST::AbstractArray& array) {
+            return process_abstract_declarator(*array.declarator, AST::ArrayType(type, array.size));
         }
     }, declarator);
 }
@@ -703,6 +757,14 @@ AST::ExprHandle Parser::factor() {
             return std::make_unique<AST::Expr>(
                 AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_DECREMENT, std::move(primary_expr)));
         }
+        // check if correct! prob not!
+        // overlap!
+        if (match(Token::Type::LEFT_BRACKET)) {
+            auto expr = expression();
+            expect(Token::Type::RIGHT_BRACKET);
+            return std::make_unique<AST::Expr>(AST::SubscriptExpr(std::move(primary_expr), std::move(expr)));
+        }
+
         if (std::holds_alternative<AST::VariableExpr>(*primary_expr) && match(Token::Type::LEFT_PAREN)) {
             return std::make_unique<AST::Expr>(
                 AST::FunctionCall(std::get<AST::VariableExpr>(*primary_expr).name, arguments_list()));

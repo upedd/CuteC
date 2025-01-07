@@ -269,6 +269,12 @@ void Lexer::lex() {
             case ',':
                 make_token(Token::Type::COMMA);
                 break;
+            case '[':
+                make_token(Token::Type::LEFT_BRACKET);
+                break;
+            case ']':
+                make_token(Token::Type::RIGHT_BRACKET);
+                break;
             case '.':
                 if (is_digit(peek())) {
                     make_constant(true);

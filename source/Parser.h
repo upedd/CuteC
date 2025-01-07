@@ -42,6 +42,8 @@ public:
 
     AST::DeclHandle declaration();
 
+    std::unique_ptr<AST::Initializer> initializer();
+
     AST::VariableDecl variable_declaration(const std::string &name, const AST::Type &type, AST::StorageClass storage_class);
 
     AST::StmtHandle labeled_stmt(const Token &identifer);
