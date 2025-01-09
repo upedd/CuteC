@@ -297,6 +297,15 @@ void TypeCheckerPass::check_decl(AST::DeclHandle &item) {
                }, *item);
 }
 
+void TypeCheckerPass::check_expr_and_convert(AST::ExprHandle& expr) {
+    check_expr(*expr);
+    auto type = get_type(*expr);
+    if (std::holds_alternative<AST::ArrayType>(*type)) {
+        auto& array_type = std::get<AST::ArrayType>(*type);
+        expr = std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(expr), AST::PointerType(array_type.element_type)));
+    };
+}
+
 void TypeCheckerPass::check_expr(AST::Expr &expr) {
     std::visit(overloaded{
                    [this](AST::FunctionCall &expr) {
@@ -326,22 +335,22 @@ void TypeCheckerPass::check_expr(AST::Expr &expr) {
             [this](AST::DereferenceExpr &expr) {
                 check_dereference(expr);
             },
-        [this](AST::AddressOfExpr& expr) {
-            check_address_of(expr);
-        },
-        [this](AST::TemporaryExpr& expr) {
-            if (expr.init) {
-                check_expr(*expr.init);
-                expr.type = get_type(*expr.init);
-                symbols[expr.identifier] = Symbol(expr.type, LocalAttributes{});
-            }
-        },
-        [this](AST::CompoundExpr& expr) {
-            for (auto& ex : expr.exprs) {
-                check_expr(*ex);
-            }
-            expr.type = get_type(*expr.exprs.back());
-         }
+            [this](AST::AddressOfExpr& expr) {
+                check_address_of(expr);
+            },
+            [this](AST::TemporaryExpr& expr) {
+                if (expr.init) {
+                    check_expr_and_convert(expr.init);
+                    expr.type = get_type(*expr.init);
+                    symbols[expr.identifier] = Symbol(expr.type, LocalAttributes{});
+                }
+            },
+            [this](AST::CompoundExpr& expr) {
+                for (auto& ex : expr.exprs) {
+                    check_expr_and_convert(ex);
+                }
+                expr.type = get_type(*expr.exprs.back());
+             }
                }, expr);
 }
 
@@ -356,7 +365,7 @@ void TypeCheckerPass::check_function_call(AST::FunctionCall &expr) {
         errors.emplace_back("Function called with wrong number of arguments");
     }
     for (int i = 0; i < function_type.parameters_types.size(); i++) {
-        check_expr(*expr.arguments[i]);
+        check_expr_and_convert(*expr.arguments[i]);
         convert_by_assigment(expr.arguments[i], function_type.parameters_types[i]);
     }
     expr.type = function_type.return_type;
@@ -374,17 +383,17 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
     std::visit(overloaded{
                    [this](AST::ReturnStmt &stmt) {
                        if (stmt.expr) {
-                           check_expr(*stmt.expr);
+                           check_expr_and_convert(stmt.expr);
                            convert_by_assigment(stmt.expr, current_function_return_type.back());
                        }
                    },
                    [this](AST::ExprStmt &stmt) {
-                       check_expr(*stmt.expr);
+                       check_expr_and_convert(stmt.expr);
                    },
                    [this](AST::NullStmt &) {
                    },
                    [this](AST::IfStmt &stmt) {
-                       check_expr(*stmt.condition);
+                       check_expr_and_convert(stmt.condition);
                        check_stmt(*stmt.then_stmt);
                        if (stmt.else_stmt) {
                            check_stmt(*stmt.else_stmt);
@@ -403,11 +412,11 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                    [this](AST::ContinueStmt &) {
                    },
                    [this](AST::WhileStmt &stmt) {
-                       check_expr(*stmt.condition);
+                       check_expr_and_convert(stmt.condition);
                        check_stmt(*stmt.body);
                    },
                    [this](AST::DoWhileStmt &stmt) {
-                       check_expr(*stmt.condition);
+                       check_expr_and_convert(stmt.condition);
                        check_stmt(*stmt.body);
                    },
                    [this](AST::ForStmt &stmt) {
@@ -418,20 +427,20 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                                       },
                                       [this](AST::ExprHandle &expr) {
                                           if (!expr) return;
-                                          check_expr(*expr);
+                                          check_expr_and_convert(expr);
                                       }
                                   }, stmt.init);
                        if (stmt.condition) {
-                           check_expr(*stmt.condition);
+                           check_expr_and_convert(stmt.condition);
                        }
                        if (stmt.post) {
-                           check_expr(*stmt.post);
+                           check_expr_and_convert(stmt.post);
                        }
                        check_stmt(*stmt.body);
                    },
                    [this](AST::SwitchStmt &stmt) {
 
-                       check_expr(*stmt.expr);
+                       check_expr_and_convert(stmt.expr);
                        check_stmt(*stmt.body);
                        if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.expr)) || std::holds_alternative<AST::PointerType>(*get_type(*stmt.expr))) {
                            errors.emplace_back("Switch controlling value must be an integer");
@@ -439,7 +448,7 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                    },
                    [this](AST::CaseStmt &stmt) {
                        check_stmt(*stmt.stmt);
-                       check_expr(*stmt.value);
+                       check_expr_and_convert(stmt.value);
                        if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.value)) || std::holds_alternative<AST::DoubleType>(*get_type(*stmt.value))) {
                            errors.emplace_back("Case value must be an integer");
                        }
@@ -471,13 +480,13 @@ void TypeCheckerPass::check_constant_expr(AST::ConstantExpr& expr) {
 }
 
 bool is_lvalue(const AST::Expr& expr) {
-    return std::holds_alternative<AST::VariableExpr>(expr) || std::holds_alternative<AST::DereferenceExpr>(expr);
+    return std::holds_alternative<AST::VariableExpr>(expr) || std::holds_alternative<AST::DereferenceExpr>(expr) || std::holds_alternative<AST::SubscriptExpr>(expr);
 }
 
 
 
 void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
-    check_expr(*expr.expr);
+    check_expr_and_convert(expr.expr);
     if (std::holds_alternative<AST::PointerType>(*expr.target) && std::holds_alternative<AST::DoubleType>(*get_type(*expr.expr))) {
         errors.emplace_back("Casting double to pointer type is disallowed");
     } else if (std::holds_alternative<AST::DoubleType>(*expr.target) && std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
@@ -487,7 +496,7 @@ void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
 }
 
 void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
-    check_expr(*expr.expr);
+    check_expr_and_convert(expr.expr);
     if ((expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT) && !is_lvalue(*expr.expr)) {
         errors.emplace_back("Expected an lvalue");
     }
@@ -549,9 +558,17 @@ AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle& 
     return {};
 }
 
+bool is_type_integer(const AST::Type& type) {
+    return std::holds_alternative<AST::IntType>(type) || std::holds_alternative<AST::UIntType>(type) || std::holds_alternative<AST::LongType>(type) || std::holds_alternative<AST::ULongType>(type);
+}
+
+bool is_type_arithmetic(const AST::Type& type) {
+    return std::holds_alternative<AST::DoubleType>(type) || is_type_integer(type);
+}
+
 void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
-    check_expr(*expr.left);
-    check_expr(*expr.right);
+    check_expr_and_convert(expr.left);
+    check_expr_and_convert(expr.right);
 
     auto lhs_type = get_type(*expr.left);
     auto rhs_type = get_type(*expr.right);
@@ -575,21 +592,47 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         return;
     }
 
-    AST::TypeHandle common_type;
+    // mess!
 
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) {
-        common_type = get_common_pointer_type(expr.left, expr.right);
-    } else {
-        common_type = get_common_type(lhs_type, rhs_type);
+    if (is_type_arithmetic(*lhs_type) && is_type_arithmetic(*rhs_type)) {
+        auto common_type = get_common_type(lhs_type, rhs_type);
+        convert_to(expr.left, common_type);
+        convert_to(expr.right, common_type);
+        if (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT || expr.kind == AST::BinaryExpr::Kind::MULTIPLY || expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR) {
+            expr.type = common_type;
+        } else {
+            expr.type = AST::Type(AST::IntType());
+        }
+        return;
     }
-    convert_to(expr.left, common_type);
-    convert_to(expr.right, common_type);
-    if (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT || expr.kind == AST::BinaryExpr::Kind::MULTIPLY || expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR) {
-        expr.type = common_type;
-    } else {
+
+    if ((std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) && (expr.kind == AST::BinaryExpr::Kind::EQUAL || expr.kind == AST::BinaryExpr::Kind::NOT_EQUAL)) {
+        auto common_type = get_common_pointer_type(expr.left, expr.right);
+        convert_to(expr.left, common_type);
+        convert_to(expr.right, common_type);
         expr.type = AST::Type(AST::IntType());
+        return;
     }
+
+    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type) && (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
+        convert_to(expr.right, AST::Type(AST::LongType())); // ?
+        expr.type = lhs_type;
+        return;
+    }
+    if (std::holds_alternative<AST::PointerType>(*rhs_type) && is_type_integer(*lhs_type) && (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
+        convert_to(expr.left, AST::Type(AST::LongType())); // ?
+        expr.type = rhs_type;
+        return;
+    }
+
+    if (std::holds_alternative<AST::PointerType>(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type) && expr.kind == AST::BinaryExpr::Kind::SUBTRACT) {
+        expr.type = AST::Type(AST::LongType());
+        return;
+    }
+
+    errors.emplace_back("invalid operands to an binary expression");
 }
+
 
 
 bool is_type_arithmetic(const AST::TypeHandle& type) {
@@ -618,16 +661,16 @@ void TypeCheckerPass::check_assigment(AST::AssigmentExpr &expr) {
     if (!is_lvalue(*expr.left)) {
         errors.emplace_back("Lvalue expected");
     }
-    check_expr(*expr.left);
+    check_expr_and_convert(expr.left);
     expr.type = get_type(*expr.left);
-    check_expr(*expr.right);
+    check_expr_and_convert(expr.right);
     convert_by_assigment(expr.right, expr.type);
 }
 
 void TypeCheckerPass::check_conditional(AST::ConditionalExpr &expr) {
-    check_expr(*expr.condition);
-    check_expr(*expr.then_expr);
-    check_expr(*expr.else_expr);
+    check_expr_and_convert(expr.condition);
+    check_expr_and_convert(expr.then_expr);
+    check_expr_and_convert(expr.else_expr);
     auto lhs_type = get_type(*expr.then_expr);
     auto rhs_type = get_type(*expr.else_expr);
     AST::TypeHandle common_type;
@@ -642,7 +685,7 @@ void TypeCheckerPass::check_conditional(AST::ConditionalExpr &expr) {
 }
 
 void TypeCheckerPass::check_dereference(AST::DereferenceExpr &expr) {
-    check_expr(*expr.expr);
+    check_expr_and_convert(expr.expr);
     if (!std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
         errors.emplace_back("Cannot dereference a non-pointer type");
     }

@@ -121,6 +121,8 @@ public:
 
     void check_decl(AST::DeclHandle &item);
 
+    void check_expr_and_convert(AST::ExprHandle &expr);
+
     void check_expr(AST::Expr &expr);
 
 

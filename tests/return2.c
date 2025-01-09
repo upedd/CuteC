@@ -1,5 +1,6 @@
-int putchar(int c);
+/* A function with internal linkage can be declared multiple times */
+static int my_fun(void);
 
-int incr_and_print(int b) {
-    return putchar(b + 2);
+static int my_fun(void) {
+    return 0;
 }
