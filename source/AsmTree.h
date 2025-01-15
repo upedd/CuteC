@@ -7,11 +7,14 @@
 #include "analysis/TypeCheckerPass.h"
 
 namespace ASM {
-    enum class Type {
-        LongWord,
-        QuadWord,
-        Double
+    struct LongWord {};
+    struct QuadWord {};
+    struct Double {};
+    struct ByteArray {
+        int size;
+        int alignment;
     };
+    using Type = std::variant<LongWord, QuadWord, Double, ByteArray>;
 
     struct ObjectSymbol {
         Type type;
@@ -41,7 +44,7 @@ namespace ASM {
         NP
     };
 
-    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Memory, struct Data>;
+    using Operand = std::variant<struct Imm, struct Reg, struct Pseudo, struct Memory, struct Data, struct Indexed, struct PseudoMem>;
     using Instruction = std::variant<struct Mov, struct Ret, struct Unary, struct Binary, struct
         Idiv, struct Div, struct Cdq, struct Cmp, struct Jmp, struct JmpCC, struct SetCC, struct Label,
         struct Push, struct Call, struct Movsx, struct MovZeroExtend, struct Cvttsd2si, struct Cvtsi2sd, struct Lea>;
@@ -113,6 +116,17 @@ namespace ASM {
 
     struct Data {
         std::string identifier;
+    };
+
+    struct Indexed {
+        Reg base;
+        Reg index;
+        int scale;
+    };
+
+    struct PseudoMem {
+        std::string identifier;
+        int offset;
     };
 
     struct Mov {

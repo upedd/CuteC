@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <iostream>
+#include <utility>
 
 #include "../overloaded.h"
 
@@ -28,7 +29,13 @@ struct InitialDouble {
     double value;
 };
 
-using Initial = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble>;
+struct InitialZero {
+    int bytes;
+};
+
+using InitialElement = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble, InitialZero>;
+
+using Initial = std::vector<InitialElement>;
 
 struct NoInitializer {};
 struct Tentative {};
@@ -56,6 +63,34 @@ inline AST::TypeHandle get_type(const AST::Expr &expr) {
     }, expr);
 }
 
+inline int bytes_for_type(const AST::Type& type) {
+    return std::visit(overloaded {
+        [](const AST::IntType&) {
+            return 4;
+        },
+        [](const AST::UIntType&) {
+            return 4;
+        },
+        [](const AST::LongType&) {
+            return 8;
+        },
+        [](const AST::ULongType&) {
+            return 8;
+        },
+        [](const AST::PointerType&) {
+            return 8;
+        },
+        [](const AST::DoubleType&) {
+            return 8;
+        },
+        [](const AST::ArrayType& array) -> int {
+            return bytes_for_type(*array.element_type) * array.size;
+        },
+        [](const auto&) -> int {
+            std::unreachable();
+        }
+    }, type);
+}
 
 inline void convert_to(AST::ExprHandle& expr, const AST::TypeHandle& type) {
     if (get_type(*expr)->index() == type->index()) return;
@@ -76,6 +111,9 @@ inline int get_size_for_type(const AST::TypeHandle& type) {
             return 8;
         },
         [](const AST::ULongType&) {
+            return 8;
+        },
+        [](const AST::DoubleType&) {
             return 8;
         },
         [](const AST::PointerType&) {
@@ -109,9 +147,15 @@ public:
 
     void check_block(std::vector<AST::BlockItem> &block);
 
+    Initial convert_scalar_to_initial(const AST::Type &target_type, AST::ScalarInit &init);
+
+    void convert_compound_to_initial(Initial &initial, const AST::Type &target_type, AST::CompoundInit &compound);
+
     void file_scope_variable_declaration(AST::VariableDecl &decl);
 
     void local_variable_declaration(AST::VariableDecl &decl);
+
+    void check_init(const AST::TypeHandle &target_type, AST::Initializer &init);
 
     void check_function_decl(AST::FunctionDecl &function);
 
@@ -151,6 +195,10 @@ public:
     void check_dereference(AST::DereferenceExpr & expr);
 
     void check_address_of(AST::AddressOfExpr & expr);
+
+    void check_subscript(AST::SubscriptExpr & expr);
+
+    AST::InitializerHandle zero_initializer(const AST::Type &type);
 
     std::vector<Error> errors;
 

@@ -12,22 +12,28 @@
 #include "../overloaded.h"
 
 
-static bool types_match(const AST::TypeHandle& a, const AST::TypeHandle& b) {
+static bool types_match(const AST::TypeHandle &a, const AST::TypeHandle &b) {
     if (a->index() != b->index()) return false;
     if (std::holds_alternative<AST::FunctionType>(*a)) {
-        auto& fun_a = std::get<AST::FunctionType>(*a);
-        auto& fun_b = std::get<AST::FunctionType>(*b);
-        bool match = types_match(fun_a.return_type, fun_b.return_type) && fun_a.parameters_types.size() == fun_b.parameters_types.size();
+        auto &fun_a = std::get<AST::FunctionType>(*a);
+        auto &fun_b = std::get<AST::FunctionType>(*b);
+        bool match = types_match(fun_a.return_type, fun_b.return_type) && fun_a.parameters_types.size() == fun_b.
+                     parameters_types.size();
         for (int i = 0; i < fun_a.parameters_types.size(); i++) {
             match = match && types_match(fun_a.parameters_types[i], fun_b.parameters_types[i]);
         }
         return match;
     }
- if (std::holds_alternative<AST::PointerType>(*a)) {
-     auto& ptr_a = std::get<AST::PointerType>(*a);
-     auto& ptr_b = std::get<AST::PointerType>(*b);
-     return types_match(ptr_a.referenced_type, ptr_b.referenced_type);
- }
+    if (std::holds_alternative<AST::PointerType>(*a)) {
+        auto &ptr_a = std::get<AST::PointerType>(*a);
+        auto &ptr_b = std::get<AST::PointerType>(*b);
+        return types_match(ptr_a.referenced_type, ptr_b.referenced_type);
+    }
+    if (std::holds_alternative<AST::ArrayType>(*a)) {
+        auto& arr_a = std::get<AST::ArrayType>(*a);
+        auto& arr_b = std::get<AST::ArrayType>(*b);
+        return arr_a.size == arr_b.size && types_match(arr_a.element_type, arr_b.element_type);
+    }
     return true;
 }
 
@@ -37,7 +43,7 @@ static AST::TypeHandle get_common_type(const AST::TypeHandle &lhs, const AST::Ty
     if (types_match(lhs, rhs)) {
         return lhs;
     }
-    if (std::holds_alternative<AST::DoubleType>(*lhs) ) {
+    if (std::holds_alternative<AST::DoubleType>(*lhs)) {
         return lhs;
     }
     if (std::holds_alternative<AST::DoubleType>(*rhs)) {
@@ -54,6 +60,7 @@ static AST::TypeHandle get_common_type(const AST::TypeHandle &lhs, const AST::Ty
     }
     return rhs;
 }
+
 // todo: pointers in file scope variables!
 
 void TypeCheckerPass::check_block(std::vector<AST::BlockItem> &block) {
@@ -69,84 +76,124 @@ void TypeCheckerPass::check_block(std::vector<AST::BlockItem> &block) {
     }
 }
 
+Initial TypeCheckerPass::convert_scalar_to_initial(const AST::Type &target_type, AST::ScalarInit &init) {
+    auto &expr = *init.value;
+    if (!std::holds_alternative<AST::ConstantExpr>(expr)) {
+        errors.emplace_back("Non-constant initializer");
+        return {};
+    }
+    auto &constant = std::get<AST::ConstantExpr>(expr);
+    init.type = target_type;
+    return std::visit(overloaded{
+                          [ &constant](const AST::IntType &) {
+                              return std::visit(overloaded{
+                                                    [](const auto &c) {
+                                                        return Initial{InitialInt(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [ &constant](const AST::LongType &) {
+                              return std::visit(overloaded{
+                                                    [](const auto &c) {
+                                                        return Initial{InitialLong(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [&constant](const AST::ULongType &) {
+                              return std::visit(overloaded{
+                                                    [](const auto &c) {
+                                                        return Initial{InitialULong(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [ &constant](const AST::UIntType &) {
+                              return std::visit(overloaded{
+                                                    [](const auto &c) {
+                                                        return Initial{InitialUInt(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [&constant](const AST::DoubleType &) {
+                              return std::visit(overloaded{
+                                                    [](const auto &c) {
+                                                        return Initial{InitialDouble(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [&constant, this](const AST::PointerType &) {
+                              return std::visit(overloaded{
+                                                    [this](const AST::ConstDouble &) -> Initial {
+                                                        errors.emplace_back("Invalid static pointer initializer");
+                                                        return {};
+                                                    },
+                                                    [this](const auto &c) {
+                                                        if (c.value != 0) {
+                                                            errors.emplace_back("Invalid static pointer initializer");
+                                                        }
+                                                        return Initial{InitialULong(c.value)};
+                                                    }
+                                                }, constant.constant);
+                          },
+                          [](const auto &) -> Initial {
+                              std::unreachable();
+                          }
+                      }, target_type);
+}
 
 
-void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
+
+void TypeCheckerPass::convert_compound_to_initial(Initial &initial, const AST::Type& target_type, AST::CompoundInit& compound) {
+    if (!std::holds_alternative<AST::ArrayType>(target_type)) {
+        errors.emplace_back("Compound initializer used to initialize non-array type.");
+        return;
+    }
+    auto& arr_type = std::get<AST::ArrayType>(target_type);
+    if (arr_type.size < compound.init.size()) {
+        errors.emplace_back("Too many elements in compound initializer");
+        return;
+    }
+    for (const auto& element : compound.init) {
+        if (std::holds_alternative<AST::CompoundInit>(*element)) {
+            convert_compound_to_initial(initial, *arr_type.element_type, std::get<AST::CompoundInit>(*element));
+        } else {
+            auto init = convert_scalar_to_initial(*arr_type.element_type, std::get<AST::ScalarInit>(*element));
+            initial.emplace_back(init[0]); // mess!
+        }
+    }
+    int number_of_missing_elements = arr_type.size - compound.init.size();
+    if (number_of_missing_elements > 0) {
+        initial.emplace_back(InitialZero(number_of_missing_elements * bytes_for_type(*arr_type.element_type)));
+    }
+    compound.type = target_type;
+}
+
+void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl &decl) {
     InitialValue initial_value;
-    if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
-        auto& constant = std::get<AST::ConstantExpr>(*decl.expr);
-        std::visit(overloaded {
-            [&initial_value, &constant](const AST::IntType&) {
-                    std::visit(overloaded {
-                        [&initial_value](const auto& c) {
-                            initial_value = InitialInt(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [&initial_value, &constant](const AST::LongType&) {
-                std::visit(overloaded {
-                        [&initial_value](const auto& c) {
-                            initial_value = InitialLong(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [&initial_value, &constant](const AST::ULongType&) {
-                std::visit(overloaded {
-                        [&initial_value](const auto& c) {
-                            initial_value = InitialULong(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [&initial_value, &constant](const AST::UIntType&) {
-                std::visit(overloaded {
-                        [&initial_value](const auto& c) {
-                            initial_value = InitialUInt(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [&initial_value, &constant](const AST::DoubleType&) {
-                std::visit(overloaded {
-                        [&initial_value](const auto& c) {
-                            initial_value = InitialDouble(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [&initial_value, &constant, this](const AST::PointerType&) {
-                std::visit(overloaded {
-                        [this](const AST::ConstDouble&) {
-                            errors.emplace_back("Invalid static pointer initializer");
-                        },
-                        [&initial_value, this](const auto& c) {
-                            if (c.value != 0) {
-                                errors.emplace_back("Invalid static pointer initializer");
-                            }
-                            initial_value = InitialULong(c.value);
-                        }
-                    }, constant.constant);
-            },
-            [](const auto&) {
-                std::unreachable();
-            }
-        }, *decl.type);
-    } else if (!decl.expr) {
+
+    if (decl.init) {
+        if (std::holds_alternative<AST::ScalarInit>(*decl.init)) {
+            initial_value = convert_scalar_to_initial(*decl.type, std::get<AST::ScalarInit>(*decl.init));
+        } else if (std::holds_alternative<AST::CompoundInit>(*decl.init)) {
+            Initial initial;
+            convert_compound_to_initial(initial, *decl.type, std::get<AST::CompoundInit>(*decl.init));
+            initial_value = initial;
+        }
+    } else {
         if (decl.storage_class == AST::StorageClass::EXTERN) {
             initial_value = NoInitializer();
         } else {
             initial_value = Tentative();
         }
-    } else {
-        errors.emplace_back("Non-constant initializer");
     }
-
     bool global = decl.storage_class != AST::StorageClass::STATIC;
 
     if (symbols.contains(decl.name)) {
-        auto& old_decl = symbols[decl.name];
+        auto &old_decl = symbols[decl.name];
         if (!types_match(old_decl.type, decl.type)) {
             errors.emplace_back("Conflicting types!");
         }
 
-        auto& attributes = std::get<StaticAttributes>(old_decl.attributes);
+        auto &attributes = std::get<StaticAttributes>(old_decl.attributes);
 
         if (decl.storage_class == AST::StorageClass::EXTERN) {
             global = attributes.global;
@@ -159,7 +206,8 @@ void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
             } else {
                 initial_value = attributes.initial_value;
             }
-        } else if (!std::holds_alternative<Initial>(initial_value) && std::holds_alternative<Tentative>(attributes.initial_value)) {
+        } else if (!std::holds_alternative<Initial>(initial_value) && std::holds_alternative<Tentative>(
+                       attributes.initial_value)) {
             initial_value = Tentative();
         }
     }
@@ -168,9 +216,9 @@ void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl& decl) {
     symbols[decl.name] = {decl.type, attributes};
 }
 
-void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
+void TypeCheckerPass::local_variable_declaration(AST::VariableDecl &decl) {
     if (decl.storage_class == AST::StorageClass::EXTERN) {
-        if (decl.expr) {
+        if (decl.init) {
             errors.emplace_back("Initializer on local extern variable declaration");
         }
         if (symbols.contains(decl.name)) {
@@ -183,68 +231,115 @@ void TypeCheckerPass::local_variable_declaration(AST::VariableDecl& decl) {
         }
     } else if (decl.storage_class == AST::StorageClass::STATIC) {
         InitialValue initial_value;
-        if (decl.expr && std::holds_alternative<AST::ConstantExpr>(*decl.expr)) {
-            std::visit(overloaded {
-            [&initial_value](const AST::ConstInt &constant) {
-                    initial_value = InitialInt(constant.value);
-            },
-            [&initial_value](const AST::ConstLong &constant) {
-                initial_value = InitialLong(constant.value);
-            },
-            [&initial_value](const AST::ConstULong &constant) {
-                initial_value = InitialULong(constant.value);
-            },
-            [&initial_value](const AST::ConstUInt &constant) {
-                initial_value = InitialUInt(constant.value);
+        if (decl.init) {
+            if (std::holds_alternative<AST::ScalarInit>(*decl.init)) {
+                initial_value = convert_scalar_to_initial(*decl.type, std::get<AST::ScalarInit>(*decl.init));
+            } else if (std::holds_alternative<AST::CompoundInit>(*decl.init)) {
+                Initial initial;
+                convert_compound_to_initial(initial, *decl.type, std::get<AST::CompoundInit>(*decl.init));
+                initial_value = initial;
             }
-                ,[&initial_value](const AST::ConstDouble &constant) {
-                initial_value = InitialDouble(constant.value);
-            },
-        }, std::get<AST::ConstantExpr>(*decl.expr).constant);
-        } else if (!decl.expr) {
-            std::visit(overloaded {
-                [&initial_value](const AST::IntType &) {
-                  initial_value = InitialInt(0);
-                },
-                [&initial_value](const AST::LongType &) {
-                    initial_value = InitialLong(0);
-                },
-                [&initial_value](const AST::ULongType &) {
-                    initial_value = InitialULong(0);
-                },
-                [&initial_value](const AST::UIntType &) {
-                    initial_value = InitialUInt(0);
-                },
-                [&initial_value](const AST::DoubleType &) {
-                    initial_value = InitialDouble(0);
-                },
-                [&initial_value](const AST::PointerType &) {
-                    initial_value = InitialULong(0);
-                },
-                [](const auto&) {}
-            }, *decl.type);
         } else {
-            errors.emplace_back("Non-constant initializer on local static variable");
+            initial_value = Initial { InitialZero(bytes_for_type(*decl.type)) };
         }
         symbols[decl.name] = {decl.type, StaticAttributes(initial_value, false)};
     } else {
         symbols[decl.name] = {decl.type, LocalAttributes()};
-        if (decl.expr) {
-            check_expr(*decl.expr);
-            convert_by_assigment(decl.expr, decl.type);
+        if (decl.init) {
+            check_init(decl.type, *decl.init);
         }
     }
 }
 
+
+AST::InitializerHandle TypeCheckerPass::zero_initializer(const AST::Type &type) {
+    return std::visit(overloaded{
+                          [&type](const AST::IntType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(0))), type));
+                          },
+                          [&type](const AST::UIntType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstUInt(0))), type));
+                          },
+                          [&type](const AST::LongType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(0))), type));
+                          },
+                          [&type](const AST::ULongType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstULong(0))), type));
+                          },
+                          [&type](const AST::DoubleType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstDouble(0))), type));
+                          },
+                          [&type](const AST::PointerType &) {
+                              return std::make_unique<AST::Initializer>(
+                                  AST::ScalarInit(std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstLong(0))), type));
+                          },
+                          [this, &type](const AST::ArrayType &array) {
+                              std::vector<AST::InitializerHandle> initializers;
+                              for (int i = 0; i < array.size; ++i) {
+                                  initializers.emplace_back(zero_initializer(*array.element_type));
+                              }
+                              return std::make_unique<AST::Initializer>(AST::CompoundInit(std::move(initializers), type));
+                          },
+                          [](const auto &) -> AST::InitializerHandle {
+                              std::unreachable();
+                          }
+                      }, type);
+}
+
+
+void TypeCheckerPass::check_init(const AST::TypeHandle &target_type, AST::Initializer &init) {
+    std::visit(overloaded{
+                   [this, &target_type](AST::ScalarInit &scalar) {
+                       check_expr_and_convert(scalar.value);
+                       convert_by_assigment(scalar.value, target_type);
+                       scalar.type = target_type;
+                   },
+                   [this, &target_type](AST::CompoundInit &compound) {
+                       if (!std::holds_alternative<AST::ArrayType>(*target_type)) {
+                           errors.emplace_back("Can't initializer a scalar object with a compound initializer");
+                           return;
+                       }
+                       auto &arr_type = std::get<AST::ArrayType>(*target_type);
+                       if (arr_type.size < compound.init.size()) {
+                           errors.emplace_back("Too many values in initializer");
+                           return;
+                       }
+                       for (auto &element: compound.init) {
+                           check_init(arr_type.element_type, *element);
+                       }
+                       while (compound.init.size() < arr_type.size) {
+                           compound.init.emplace_back(zero_initializer(*arr_type.element_type));
+                       }
+                       compound.type = target_type;
+                   }
+               }, init);
+}
+
 void TypeCheckerPass::check_function_decl(AST::FunctionDecl &function) {
+
+    auto &fun_type = std::get<AST::FunctionType>(*function.type);
+    if (std::holds_alternative<AST::ArrayType>(*fun_type.return_type)) {
+        errors.emplace_back("Function cannot return an array");
+    }
+    for (auto &param: fun_type.parameters_types) {
+        if (std::holds_alternative<AST::ArrayType>(*param)) {
+            *param = AST::PointerType(std::get<AST::ArrayType>(*param).element_type);
+        }
+    }
+
     bool already_defined = false;
     bool global = function.storage_class != AST::StorageClass::STATIC;
     if (symbols.contains(function.name)) {
-        auto& old_decl = symbols[function.name];
+        auto &old_decl = symbols[function.name];
         if (!types_match(old_decl.type, function.type)) {
             errors.emplace_back("Incompatible function declaration: " + function.name);
         }
-        auto& function_attributes = std::get<FunctionAttributes>(old_decl.attributes);
+        auto &function_attributes = std::get<FunctionAttributes>(old_decl.attributes);
         already_defined = function_attributes.defined;
         if (already_defined && function.body) {
             errors.emplace_back("Function redefinition: " + function.name);
@@ -271,14 +366,14 @@ void TypeCheckerPass::check_function_decl(AST::FunctionDecl &function) {
 
 void TypeCheckerPass::check_program(AST::Program &program) {
     for (const auto &declaration: program.declarations) {
-        std::visit(overloaded {
-            [this](AST::VariableDecl& decl) {
-                file_scope_variable_declaration(decl);
-            },
-            [this](AST::FunctionDecl& decl) {
-                check_function_decl(decl);
-            }
-        }, *declaration);
+        std::visit(overloaded{
+                       [this](AST::VariableDecl &decl) {
+                           file_scope_variable_declaration(decl);
+                       },
+                       [this](AST::FunctionDecl &decl) {
+                           check_function_decl(decl);
+                       }
+                   }, *declaration);
     }
 }
 
@@ -297,12 +392,13 @@ void TypeCheckerPass::check_decl(AST::DeclHandle &item) {
                }, *item);
 }
 
-void TypeCheckerPass::check_expr_and_convert(AST::ExprHandle& expr) {
+void TypeCheckerPass::check_expr_and_convert(AST::ExprHandle &expr) {
     check_expr(*expr);
     auto type = get_type(*expr);
     if (std::holds_alternative<AST::ArrayType>(*type)) {
-        auto& array_type = std::get<AST::ArrayType>(*type);
-        expr = std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(expr), AST::PointerType(array_type.element_type)));
+        auto &array_type = std::get<AST::ArrayType>(*type);
+        expr = std::make_unique<AST::Expr>(
+            AST::AddressOfExpr(std::move(expr), {AST::PointerType(array_type.element_type)}));
     };
 }
 
@@ -326,31 +422,34 @@ void TypeCheckerPass::check_expr(AST::Expr &expr) {
                    [this](AST::ConditionalExpr &expr) {
                        check_conditional(expr);
                    },
-                   [this](AST::ConstantExpr & expr) {
+                   [this](AST::ConstantExpr &expr) {
                        check_constant_expr(expr);
                    },
-                    [this](AST::CastExpr &expr) {
-                        check_cast_expr(expr);
-                    },
-            [this](AST::DereferenceExpr &expr) {
-                check_dereference(expr);
-            },
-            [this](AST::AddressOfExpr& expr) {
-                check_address_of(expr);
-            },
-            [this](AST::TemporaryExpr& expr) {
-                if (expr.init) {
-                    check_expr_and_convert(expr.init);
-                    expr.type = get_type(*expr.init);
-                    symbols[expr.identifier] = Symbol(expr.type, LocalAttributes{});
-                }
-            },
-            [this](AST::CompoundExpr& expr) {
-                for (auto& ex : expr.exprs) {
-                    check_expr_and_convert(ex);
-                }
-                expr.type = get_type(*expr.exprs.back());
-             }
+                   [this](AST::CastExpr &expr) {
+                       check_cast_expr(expr);
+                   },
+                   [this](AST::DereferenceExpr &expr) {
+                       check_dereference(expr);
+                   },
+                   [this](AST::AddressOfExpr &expr) {
+                       check_address_of(expr);
+                   },
+                   [this](AST::SubscriptExpr &expr) {
+                       check_subscript(expr);
+                   },
+                   [this](AST::TemporaryExpr &expr) {
+                       if (expr.init) {
+                           check_expr_and_convert(expr.init);
+                           expr.type = get_type(*expr.init);
+                           symbols[expr.identifier] = Symbol(expr.type, LocalAttributes{});
+                       }
+                   },
+                   [this](AST::CompoundExpr &expr) {
+                       for (auto &ex: expr.exprs) {
+                           check_expr_and_convert(ex);
+                       }
+                       expr.type = get_type(*expr.exprs.back());
+                   }
                }, expr);
 }
 
@@ -360,12 +459,12 @@ void TypeCheckerPass::check_function_call(AST::FunctionCall &expr) {
     if (!std::holds_alternative<AST::FunctionType>(*type)) {
         errors.emplace_back("Variable used as function name");
     }
-    auto& function_type = std::get<AST::FunctionType>(*type);
+    auto &function_type = std::get<AST::FunctionType>(*type);
     if (function_type.parameters_types.size() != expr.arguments.size()) {
         errors.emplace_back("Function called with wrong number of arguments");
     }
     for (int i = 0; i < function_type.parameters_types.size(); i++) {
-        check_expr_and_convert(*expr.arguments[i]);
+        check_expr_and_convert(expr.arguments[i]);
         convert_by_assigment(expr.arguments[i], function_type.parameters_types[i]);
     }
     expr.type = function_type.return_type;
@@ -439,17 +538,18 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                        check_stmt(*stmt.body);
                    },
                    [this](AST::SwitchStmt &stmt) {
-
                        check_expr_and_convert(stmt.expr);
                        check_stmt(*stmt.body);
-                       if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.expr)) || std::holds_alternative<AST::PointerType>(*get_type(*stmt.expr))) {
+                       if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.expr)) || std::holds_alternative<
+                               AST::PointerType>(*get_type(*stmt.expr))) {
                            errors.emplace_back("Switch controlling value must be an integer");
                        }
                    },
                    [this](AST::CaseStmt &stmt) {
                        check_stmt(*stmt.stmt);
                        check_expr_and_convert(stmt.value);
-                       if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.value)) || std::holds_alternative<AST::DoubleType>(*get_type(*stmt.value))) {
+                       if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.value)) || std::holds_alternative<
+                               AST::DoubleType>(*get_type(*stmt.value))) {
                            errors.emplace_back("Case value must be an integer");
                        }
                    },
@@ -459,37 +559,43 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                }, item);
 }
 
-void TypeCheckerPass::check_constant_expr(AST::ConstantExpr& expr) {
-    std::visit(overloaded {
-        [&expr](const AST::ConstInt&) {
-            expr.type = AST::Type(AST::IntType());
-        },
-        [&expr](const AST::ConstLong&) {
-            expr.type = AST::Type(AST::LongType());
-        },
-        [&expr](const AST::ConstUInt&) {
-            expr.type = AST::Type(AST::UIntType());
-        },
-        [&expr](const AST::ConstULong&) {
-            expr.type = AST::Type(AST::ULongType());
-        },
-        [&expr](const AST::ConstDouble&) {
-            expr.type = AST::Type(AST::DoubleType());
-        }
-    }, expr.constant);
+void TypeCheckerPass::check_constant_expr(AST::ConstantExpr &expr) {
+    std::visit(overloaded{
+                   [&expr](const AST::ConstInt &) {
+                       expr.type = AST::Type(AST::IntType());
+                   },
+                   [&expr](const AST::ConstLong &) {
+                       expr.type = AST::Type(AST::LongType());
+                   },
+                   [&expr](const AST::ConstUInt &) {
+                       expr.type = AST::Type(AST::UIntType());
+                   },
+                   [&expr](const AST::ConstULong &) {
+                       expr.type = AST::Type(AST::ULongType());
+                   },
+                   [&expr](const AST::ConstDouble &) {
+                       expr.type = AST::Type(AST::DoubleType());
+                   }
+               }, expr.constant);
 }
 
-bool is_lvalue(const AST::Expr& expr) {
-    return std::holds_alternative<AST::VariableExpr>(expr) || std::holds_alternative<AST::DereferenceExpr>(expr) || std::holds_alternative<AST::SubscriptExpr>(expr);
+bool is_lvalue(const AST::Expr &expr) {
+    return std::holds_alternative<AST::VariableExpr>(expr) || std::holds_alternative<AST::DereferenceExpr>(expr) ||
+           std::holds_alternative<AST::SubscriptExpr>(expr);
 }
-
 
 
 void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
     check_expr_and_convert(expr.expr);
-    if (std::holds_alternative<AST::PointerType>(*expr.target) && std::holds_alternative<AST::DoubleType>(*get_type(*expr.expr))) {
+    if (std::holds_alternative<AST::ArrayType>(*expr.target)) {
+        errors.emplace_back("Casting to array type is disallowed");
+    }
+
+    if (std::holds_alternative<AST::PointerType>(*expr.target) && std::holds_alternative<AST::DoubleType>(
+            *get_type(*expr.expr))) {
         errors.emplace_back("Casting double to pointer type is disallowed");
-    } else if (std::holds_alternative<AST::DoubleType>(*expr.target) && std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
+    } else if (std::holds_alternative<AST::DoubleType>(*expr.target) && std::holds_alternative<AST::PointerType>(
+                   *get_type(*expr.expr))) {
         errors.emplace_back("Casting pointer to double type is disallowed");
     }
     expr.type = expr.target;
@@ -497,15 +603,19 @@ void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
 
 void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
     check_expr_and_convert(expr.expr);
-    if ((expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT) && !is_lvalue(*expr.expr)) {
+    if ((expr.kind == AST::UnaryExpr::Kind::POSTFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::POSTFIX_INCREMENT ||
+         expr.kind == AST::UnaryExpr::Kind::PREFIX_DECREMENT || expr.kind == AST::UnaryExpr::Kind::PREFIX_INCREMENT) &&
+        !is_lvalue(*expr.expr)) {
         errors.emplace_back("Expected an lvalue");
     }
 
-    if (expr.kind == AST::UnaryExpr::Kind::COMPLEMENT && std::holds_alternative<AST::DoubleType>(*get_type(*expr.expr))) {
+    if (expr.kind == AST::UnaryExpr::Kind::COMPLEMENT && std::holds_alternative<
+            AST::DoubleType>(*get_type(*expr.expr))) {
         errors.emplace_back("Bitwise complement operator operand must have integer type");
     }
 
-    if ((expr.kind == AST::UnaryExpr::Kind::COMPLEMENT || expr.kind == AST::UnaryExpr::Kind::NEGATE) && std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
+    if ((expr.kind == AST::UnaryExpr::Kind::COMPLEMENT || expr.kind == AST::UnaryExpr::Kind::NEGATE) &&
+        std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
         errors.emplace_back("Invalid unary operation on pointer type");
     }
 
@@ -516,31 +626,31 @@ void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
     }
 }
 
-bool is_null_pointer_constant(const AST::Expr& expr) {
+bool is_null_pointer_constant(const AST::Expr &expr) {
     if (!std::holds_alternative<AST::ConstantExpr>(expr)) {
         return false;
     }
 
-    return std::visit(overloaded {
-        [](const AST::ConstInt& c) {
-            return c.value == 0;
-        },
-        [](const AST::ConstUInt& c) {
-            return c.value == 0;
-        },
-        [](const AST::ConstLong& c) {
-            return c.value == 0;
-        },
-        [](const AST::ConstULong& c) {
-            return c.value == 0;
-        },
-        [](const auto&) {
-            return false;
-        }
-    }, std::get<AST::ConstantExpr>(expr).constant);
+    return std::visit(overloaded{
+                          [](const AST::ConstInt &c) {
+                              return c.value == 0;
+                          },
+                          [](const AST::ConstUInt &c) {
+                              return c.value == 0;
+                          },
+                          [](const AST::ConstLong &c) {
+                              return c.value == 0;
+                          },
+                          [](const AST::ConstULong &c) {
+                              return c.value == 0;
+                          },
+                          [](const auto &) {
+                              return false;
+                          }
+                      }, std::get<AST::ConstantExpr>(expr).constant);
 }
 
-AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle& lhs, const AST::ExprHandle& rhs) {
+AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle &lhs, const AST::ExprHandle &rhs) {
     auto lhs_type = get_type(*lhs);
     auto rhs_type = get_type(*rhs);
     if (types_match(lhs_type, rhs_type)) {
@@ -558,11 +668,12 @@ AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle& 
     return {};
 }
 
-bool is_type_integer(const AST::Type& type) {
-    return std::holds_alternative<AST::IntType>(type) || std::holds_alternative<AST::UIntType>(type) || std::holds_alternative<AST::LongType>(type) || std::holds_alternative<AST::ULongType>(type);
+bool is_type_integer(const AST::Type &type) {
+    return std::holds_alternative<AST::IntType>(type) || std::holds_alternative<AST::UIntType>(type) ||
+           std::holds_alternative<AST::LongType>(type) || std::holds_alternative<AST::ULongType>(type);
 }
 
-bool is_type_arithmetic(const AST::Type& type) {
+bool is_type_arithmetic(const AST::Type &type) {
     return std::holds_alternative<AST::DoubleType>(type) || is_type_integer(type);
 }
 
@@ -573,11 +684,19 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
     auto lhs_type = get_type(*expr.left);
     auto rhs_type = get_type(*expr.right);
 
-    if ((expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (std::holds_alternative<AST::DoubleType>(*lhs_type) || std::holds_alternative<AST::DoubleType>(*rhs_type))) {
+    if ((expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind ==
+         AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind ==
+         AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (
+            std::holds_alternative<AST::DoubleType>(*lhs_type) || std::holds_alternative<AST::DoubleType>(*rhs_type))) {
         errors.emplace_back("operator operands must have integer types");
     }
 
-    if ((expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind == AST::BinaryExpr::Kind::MULTIPLY || expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type))) {
+    if ((expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind == AST::BinaryExpr::Kind::MULTIPLY || expr.kind ==
+         AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind ==
+         AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind ==
+         AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (
+            std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<
+                AST::PointerType>(*rhs_type))) {
         errors.emplace_back("invalid operand for operator"); // better errors?
     }
 
@@ -585,7 +704,7 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         expr.type = AST::Type(AST::IntType());
         return;
     }
-    if (expr.kind  == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) {
+    if (expr.kind == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) {
         auto lhs_type = get_type(*expr.left);
         convert_to(expr.right, lhs_type);
         expr.type = lhs_type;
@@ -598,7 +717,10 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         auto common_type = get_common_type(lhs_type, rhs_type);
         convert_to(expr.left, common_type);
         convert_to(expr.right, common_type);
-        if (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT || expr.kind == AST::BinaryExpr::Kind::MULTIPLY || expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind == AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind == AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR) {
+        if (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT || expr.kind ==
+            AST::BinaryExpr::Kind::MULTIPLY || expr.kind == AST::BinaryExpr::Kind::DIVIDE || expr.kind ==
+            AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind ==
+            AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR) {
             expr.type = common_type;
         } else {
             expr.type = AST::Type(AST::IntType());
@@ -606,7 +728,8 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         return;
     }
 
-    if ((std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) && (expr.kind == AST::BinaryExpr::Kind::EQUAL || expr.kind == AST::BinaryExpr::Kind::NOT_EQUAL)) {
+    if ((std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) &&
+        (expr.kind == AST::BinaryExpr::Kind::EQUAL || expr.kind == AST::BinaryExpr::Kind::NOT_EQUAL)) {
         auto common_type = get_common_pointer_type(expr.left, expr.right);
         convert_to(expr.left, common_type);
         convert_to(expr.right, common_type);
@@ -614,19 +737,30 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         return;
     }
 
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type) && (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
+    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type) && (
+            expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
         convert_to(expr.right, AST::Type(AST::LongType())); // ?
         expr.type = lhs_type;
         return;
     }
-    if (std::holds_alternative<AST::PointerType>(*rhs_type) && is_type_integer(*lhs_type) && (expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
+    if (std::holds_alternative<AST::PointerType>(*rhs_type) && is_type_integer(*lhs_type) && expr.kind ==
+        AST::BinaryExpr::Kind::ADD) {
         convert_to(expr.left, AST::Type(AST::LongType())); // ?
         expr.type = rhs_type;
         return;
     }
 
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type) && expr.kind == AST::BinaryExpr::Kind::SUBTRACT) {
+    if (std::holds_alternative<AST::PointerType>(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type) &&
+        expr.kind == AST::BinaryExpr::Kind::SUBTRACT && types_match(lhs_type, rhs_type)) {
         expr.type = AST::Type(AST::LongType());
+        return;
+    }
+
+    if (types_match(lhs_type, rhs_type) && (expr.kind == AST::BinaryExpr::Kind::LESS || expr.kind ==
+                                            AST::BinaryExpr::Kind::LESS_EQUAL || expr.kind ==
+                                            AST::BinaryExpr::Kind::GREATER || expr.kind ==
+                                            AST::BinaryExpr::Kind::GREATER_EQUAL)) {
+        expr.type = AST::Type(AST::IntType());
         return;
     }
 
@@ -634,12 +768,13 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
 }
 
 
-
-bool is_type_arithmetic(const AST::TypeHandle& type) {
-    return std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::LongType>(*type) || std::holds_alternative<AST::ULongType>(*type) || std::holds_alternative<AST::DoubleType>(*type);
+bool is_type_arithmetic(const AST::TypeHandle &type) {
+    return std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::UIntType>(*type) ||
+           std::holds_alternative<AST::LongType>(*type) || std::holds_alternative<AST::ULongType>(*type) ||
+           std::holds_alternative<AST::DoubleType>(*type);
 }
 
-void TypeCheckerPass::convert_by_assigment(AST::ExprHandle& expr, AST::TypeHandle target) {
+void TypeCheckerPass::convert_by_assigment(AST::ExprHandle &expr, AST::TypeHandle target) {
     auto expr_type = get_type(*expr);
     if (types_match(target, expr_type)) {
         return;
@@ -654,14 +789,13 @@ void TypeCheckerPass::convert_by_assigment(AST::ExprHandle& expr, AST::TypeHandl
         return;
     }
     errors.emplace_back("Cannot convert types for assigment");
-
 }
 
 void TypeCheckerPass::check_assigment(AST::AssigmentExpr &expr) {
+    check_expr_and_convert(expr.left);
     if (!is_lvalue(*expr.left)) {
         errors.emplace_back("Lvalue expected");
     }
-    check_expr_and_convert(expr.left);
     expr.type = get_type(*expr.left);
     check_expr_and_convert(expr.right);
     convert_by_assigment(expr.right, expr.type);
@@ -699,4 +833,20 @@ void TypeCheckerPass::check_address_of(AST::AddressOfExpr &expr) {
     }
     check_expr(*expr.expr);
     expr.type = {AST::PointerType(*get_type(*expr.expr))};
+}
+
+void TypeCheckerPass::check_subscript(AST::SubscriptExpr &expr) {
+    check_expr_and_convert(expr.expr);
+    check_expr_and_convert(expr.index);
+    auto lhs_type = get_type(*expr.expr);
+    auto rhs_type = get_type(*expr.index);
+    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type)) {
+        expr.type = std::get<AST::PointerType>(*lhs_type).referenced_type;
+        convert_to(expr.index, AST::Type(AST::LongType()));
+    } else if (is_type_integer(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type)) {
+        expr.type = std::get<AST::PointerType>(*rhs_type).referenced_type;
+        convert_to(expr.expr, AST::Type(AST::LongType()));
+    } else {
+        errors.emplace_back("Subscript operands must be of type pointer and integer");
+    }
 }

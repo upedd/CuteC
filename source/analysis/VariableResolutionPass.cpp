@@ -154,6 +154,10 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                             resolve_expression(*ex);
                         }
                     },
+                   [this](AST::SubscriptExpr& expr) {
+                       resolve_expression(*expr.expr);
+                       resolve_expression(*expr.index);
+                   },
                    [this](auto &) {
                    }
                }, expr);
@@ -264,13 +268,25 @@ void VariableResolutionPass::resolve_function_declaration(AST::FunctionDecl &dec
     variables.pop_back();
 }
 
+void VariableResolutionPass::resolve_initializer(AST::Initializer& init) {
+    std::visit(overloaded {
+        [this](AST::ScalarInit& scalar) {
+            resolve_expression(*scalar.value);
+        },
+        [this](AST::CompoundInit& compound) {
+            for (auto& element : compound.init) {
+                resolve_initializer(*element);
+            }
+        }
+    }, init);
+}
+
 void VariableResolutionPass::resolve_variable_decl(AST::VariableDecl &decl) {
     decl.name = declare(Identifier(decl.name, decl.storage_class == AST::StorageClass::EXTERN)).name;
-    if (decl.expr) {
+    if (decl.init) {
         if (decl.storage_class == AST::StorageClass::EXTERN) {
             errors.emplace_back("Initialization of external variables inside of blocks is disallowed.");
         }
-
-        resolve_expression(*decl.expr);
+        resolve_initializer(*decl.init);
     }
 }

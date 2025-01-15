@@ -14,142 +14,192 @@
 namespace codegen {
     class IRToAsmTreePass {
     public:
-        IRToAsmTreePass(IR::Program IRProgram, std::unordered_map<std::string, Symbol>* symbols) : IRProgram(std::move(IRProgram)), symbols(symbols) {
+        IRToAsmTreePass(IR::Program IRProgram,
+                        std::unordered_map<std::string, Symbol> *symbols) : IRProgram(std::move(IRProgram)),
+                                                                            symbols(symbols) {
         }
 
-        ASM::Type get_type_for_identifier(const std::string& name) {
-            return std::visit(overloaded {
-                        [](const AST::IntType&) {
-                            return ASM::Type::LongWord;
-                        },
-                        [](const AST::UIntType&) {
-                            return ASM::Type::LongWord;
-                        },
-                        [](const AST::LongType&) {
-                            return ASM::Type::QuadWord;
-                        },
-                        [](const AST::ULongType&) {
-                            return ASM::Type::QuadWord;
-                        },
-                        [](const AST::DoubleType&) {
-                            return ASM::Type::Double;
-                        },
-                        [](const AST::PointerType&) {
-                            return ASM::Type::QuadWord;
-                        },
-                        [](const auto&) -> ASM::Type {
-                            std::unreachable();
-                        }
-                    }, *(*symbols)[name].type);
+        ASM::Type get_type_for_identifier(const std::string &name) {
+            return std::visit(overloaded{
+                                  [](const AST::IntType &) -> ASM::Type {
+                                      return ASM::LongWord();
+                                  },
+                                  [](const AST::UIntType &) -> ASM::Type {
+                                      return ASM::LongWord();
+                                  },
+                                  [](const AST::LongType &) -> ASM::Type {
+                                      return ASM::QuadWord();
+                                  },
+                                  [](const AST::ULongType &) -> ASM::Type {
+                                      return ASM::QuadWord();
+                                  },
+                                  [](const AST::DoubleType &) -> ASM::Type {
+                                      return ASM::QuadWord();
+                                  },
+                                  [](const AST::PointerType &) -> ASM::Type {
+                                      return ASM::QuadWord();
+                                  },
+                                  [](const AST::ArrayType &) -> ASM::Type {
+                                      return ASM::ByteArray(); // TODO
+                                  },
+                                  [](const auto &) -> ASM::Type {
+                                      std::unreachable();
+                                  }
+                              }, *(*symbols)[name].type);
         }
 
-        ASM::Type get_type_for_value(const IR::Value& value) {
-            return std::visit(overloaded {
-                [](const IR::Constant& val) {
-                    return std::visit(overloaded {
-                        [](const AST::ConstInt&) {
-                            return ASM::Type::LongWord;
-                        },
-                        [](const AST::ConstUInt&) {
-                            return ASM::Type::LongWord;
-                        },
-                        [](const AST::ConstLong&) {
-                            return ASM::Type::QuadWord;
-                        },
-                        [](const AST::ConstULong&) {
-                            return ASM::Type::QuadWord;
-                        },
-                        [](const AST::ConstDouble&) {
-                            return ASM::Type::Double;
-                        }
-                        }, val.constant);
-                },
-                [this](const IR::Variable& val) {
-                    return get_type_for_identifier(val.name);
-                }
-            }, value);
+        ASM::Type get_type_for_value(const IR::Value &value) {
+            return std::visit(overloaded{
+                                  [](const IR::Constant &val) {
+                                      return std::visit(overloaded{
+                                                            [](const AST::ConstInt &) -> ASM::Type {
+                                                                return ASM::LongWord();
+                                                            },
+                                                            [](const AST::ConstUInt &) -> ASM::Type {
+                                                                return ASM::LongWord();
+                                                            },
+                                                            [](const AST::ConstLong &) -> ASM::Type {
+                                                                return ASM::QuadWord();
+                                                            },
+                                                            [](const AST::ConstULong &) -> ASM::Type {
+                                                                return ASM::QuadWord();
+                                                            },
+                                                            [](const AST::ConstDouble &) -> ASM::Type {
+                                                                return ASM::Double();
+                                                            }
+                                                        }, val.constant);
+                                  },
+                                  [this](const IR::Variable &val) {
+                                      return get_type_for_identifier(val.name);
+                                  }
+                              }, value);
         }
 
-        bool is_unsigned(const IR::Value& value) {
-            return std::visit(overloaded {
-                [](const IR::Constant& val) {
-                    return std::holds_alternative<AST::ConstUInt>(val.constant) || std::holds_alternative<AST::ConstULong>(val.constant);
-                },
-                [this](const IR::Variable& val) {
-                    auto type = (*symbols)[val.name].type;
-                    return std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type);
-                }
-            }, value);
+        bool is_unsigned(const IR::Value &value) {
+            return std::visit(overloaded{
+                                  [](const IR::Constant &val) {
+                                      return std::holds_alternative<AST::ConstUInt>(val.constant) ||
+                                             std::holds_alternative<AST::ConstULong>(val.constant);
+                                  },
+                                  [this](const IR::Variable &val) {
+                                      auto type = (*symbols)[val.name].type;
+                                      return std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<
+                                                 AST::ULongType>(*type);
+                                  }
+                              }, value);
+        }
+
+        bool is_pointer(const IR::Value& value) {
+            return std::visit(overloaded{
+                                 [](const IR::Constant &val) {
+                                     return false; // never pointer constants?
+                                 },
+                                 [this](const IR::Variable &val) {
+                                     auto type = (*symbols)[val.name].type;
+                                     return std::holds_alternative<AST::PointerType>(*type);
+                                 }
+                             }, value);
         }
 
         void convert() {
             for (const auto &item: IRProgram.items) {
-                std::visit(overloaded {
-                    [this](const IR::Function& function) {
-                        asmProgram.items.emplace_back(convert_function(function));
-                    },
-                    [this](const IR::StaticVariable& variable) {
-                        asmProgram.items.emplace_back(convert_static_variable(variable));
-                    }
-                }, item);
+                std::visit(overloaded{
+                               [this](const IR::Function &function) {
+                                   asmProgram.items.emplace_back(convert_function(function));
+                               },
+                               [this](const IR::StaticVariable &variable) {
+                                   asmProgram.items.emplace_back(convert_static_variable(variable));
+                               }
+                           }, item);
             }
 
-            for (const auto& [name, symbol] : *symbols) {
-                asmSymbols[name] = std::visit(overloaded {
-                    [&symbol](const AST::IntType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::LongWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-                    },
-                    [&symbol](const AST::LongType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::QuadWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-                    },
-                    [&symbol](const AST::ULongType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::QuadWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-                    },
-                    [&symbol](const AST::UIntType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::LongWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-                    },
-                    [&symbol](const AST::DoubleType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::Double, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-                    },
-                    [&symbol](const AST::FunctionType&) -> ASM::Symbol {
-                        return ASM::FunctionSymbol {std::get<FunctionAttributes>(symbol.attributes).defined};
-                    },
-                    [&symbol](const AST::PointerType&) -> ASM::Symbol {
-                        return ASM::ObjectSymbol {ASM::Type::QuadWord, std::holds_alternative<StaticAttributes>(symbol.attributes)};
-
-                    },
-                    [](const auto&) -> ASM::Symbol {
-                        std::unreachable();
-                    }
-                }, *symbol.type);
+            for (const auto &[name, symbol]: *symbols) {
+                asmSymbols[name] = std::visit(overloaded{
+                                                  [&symbol](const AST::IntType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::LongWord(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::LongType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::QuadWord(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::ULongType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::QuadWord(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::UIntType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::LongWord(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::DoubleType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::Double(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::FunctionType &) -> ASM::Symbol {
+                                                      return ASM::FunctionSymbol{
+                                                          std::get<FunctionAttributes>(symbol.attributes).defined
+                                                      };
+                                                  },
+                                                  [&symbol](const AST::PointerType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::QuadWord(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                          [&symbol](const AST::ArrayType& type) -> ASM::Symbol {
+                                                      auto size = bytes_for_type(*type.element_type) * type.size;
+                                                      std::uint64_t alignment = size < 16ull ? bytes_for_type(*type.element_type) : 16ull;
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::ByteArray(size, alignment),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                      };
+                                                  },
+                                                  [](const auto &) -> ASM::Symbol {
+                                                      std::unreachable();
+                                                  }
+                                              }, *symbol.type);
             }
-
         }
 
-        ASM::StaticVariable convert_static_variable(const IR::StaticVariable & variable) {
-            return std::visit(overloaded {
-                [&variable](const AST::IntType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 4, variable.initial};
-                },
-                [&variable](const AST::LongType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 8, variable.initial};
-                },
-                [&variable](const AST::ULongType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 8, variable.initial};
-                },
-                [&variable](const AST::UIntType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 4, variable.initial};
-                },
-                [&variable](const AST::DoubleType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 8, variable.initial};
-                },
-                [&variable](const AST::PointerType&) -> ASM::StaticVariable {
-                    return {variable.name, variable.global, 8, variable.initial};
-                },
-                [](const auto&) -> ASM::StaticVariable {
-                    std::unreachable();
-                }
-            }, *variable.type);
+        ASM::StaticVariable convert_static_variable(const IR::StaticVariable &variable) {
+            return std::visit(overloaded{
+                                  [&variable](const AST::IntType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 4, variable.initial};
+                                  },
+                                  [&variable](const AST::LongType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 8, variable.initial};
+                                  },
+                                  [&variable](const AST::ULongType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 8, variable.initial};
+                                  },
+                                  [&variable](const AST::UIntType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 4, variable.initial};
+                                  },
+                                  [&variable](const AST::DoubleType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 8, variable.initial};
+                                  },
+                                  [&variable](const AST::PointerType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, 8, variable.initial};
+                                  },
+                                    [&variable](const AST::ArrayType & type) -> ASM::StaticVariable {
+                                        auto size = bytes_for_type(*type.element_type) * type.size;
+                                        std::uint64_t alignment = size < 16ull ? bytes_for_type(*type.element_type) : 16ull;
+                                        return {variable.name, variable.global, static_cast<int>(alignment), variable.initial};
+                                    },
+                                  [](const auto &) -> ASM::StaticVariable {
+                                      std::unreachable();
+                                  }
+                              }, *variable.type);
         }
 
 
@@ -161,38 +211,42 @@ namespace codegen {
                 ASM::Reg::Name::R9
             };
             static std::vector double_registers = {
-                ASM::Reg::Name::XMM0, ASM::Reg::Name::XMM1, ASM::Reg::Name::XMM2, ASM::Reg::Name::XMM3, ASM::Reg::Name::XMM4, ASM::Reg::Name::XMM5, ASM::Reg::Name::XMM6, ASM::Reg::Name::XMM7
+                ASM::Reg::Name::XMM0, ASM::Reg::Name::XMM1, ASM::Reg::Name::XMM2, ASM::Reg::Name::XMM3,
+                ASM::Reg::Name::XMM4, ASM::Reg::Name::XMM5, ASM::Reg::Name::XMM6, ASM::Reg::Name::XMM7
             };
             std::vector<std::string> int_params;
             std::vector<std::string> double_params;
             std::vector<std::string> stack_params;
 
-            for (const auto& param : function.params) {
-                    if (get_type_for_identifier(param) == ASM::Type::Double) {
-                        if (double_params.size() < double_registers.size()) {
-                            double_params.push_back(param);
-                        } else {
-                            stack_params.push_back(param);
-                        }
+            for (const auto &param: function.params) {
+                if (std::holds_alternative<ASM::Double>(get_type_for_identifier(param))) {
+                    if (double_params.size() < double_registers.size()) {
+                        double_params.push_back(param);
                     } else {
-                        if (int_params.size() < int_registers.size()) {
-                            int_params.push_back(param);
-                        } else {
-                            stack_params.push_back(param);
-                        }
+                        stack_params.push_back(param);
                     }
+                } else {
+                    if (int_params.size() < int_registers.size()) {
+                        int_params.push_back(param);
+                    } else {
+                        stack_params.push_back(param);
+                    }
+                }
             }
 
             for (int i = 0; i < int_params.size(); ++i) {
-                instructions.emplace_back(ASM::Mov(get_type_for_identifier(int_params[i]), ASM::Reg(int_registers[i]), ASM::Pseudo(int_params[i])));
+                instructions.emplace_back(ASM::Mov(get_type_for_identifier(int_params[i]), ASM::Reg(int_registers[i]),
+                                                   ASM::Pseudo(int_params[i])));
             }
 
             for (int i = 0; i < double_params.size(); ++i) {
-                instructions.emplace_back(ASM::Mov(get_type_for_identifier(double_params[i]), ASM::Reg(double_registers[i]), ASM::Pseudo(double_params[i])));
+                instructions.emplace_back(ASM::Mov(get_type_for_identifier(double_params[i]),
+                                                   ASM::Reg(double_registers[i]), ASM::Pseudo(double_params[i])));
             }
 
             for (int i = 0; i < stack_params.size(); ++i) {
-                instructions.emplace_back(ASM::Mov(get_type_for_identifier(stack_params[i]),ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), 16 + i * 8),
+                instructions.emplace_back(ASM::Mov(get_type_for_identifier(stack_params[i]),
+                                                   ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), 16 + i * 8),
                                                    ASM::Pseudo(stack_params[i])));
             }
 
@@ -209,14 +263,15 @@ namespace codegen {
                 ASM::Reg::Name::R9
             };
             static std::vector double_registers = {
-                ASM::Reg::Name::XMM0, ASM::Reg::Name::XMM1, ASM::Reg::Name::XMM2, ASM::Reg::Name::XMM3, ASM::Reg::Name::XMM4, ASM::Reg::Name::XMM5, ASM::Reg::Name::XMM6, ASM::Reg::Name::XMM7
+                ASM::Reg::Name::XMM0, ASM::Reg::Name::XMM1, ASM::Reg::Name::XMM2, ASM::Reg::Name::XMM3,
+                ASM::Reg::Name::XMM4, ASM::Reg::Name::XMM5, ASM::Reg::Name::XMM6, ASM::Reg::Name::XMM7
             };
             std::vector<IR::Value> int_args;
             std::vector<IR::Value> double_args;
             std::vector<IR::Value> stack_args;
 
             for (const auto &arg: call.arguments) {
-                if (get_type_for_value(arg) == ASM::Type::Double) {
+                if (std::holds_alternative<ASM::Double>(get_type_for_value(arg))) {
                     if (double_args.size() < double_registers.size()) {
                         double_args.push_back(arg);
                     } else {
@@ -234,23 +289,27 @@ namespace codegen {
 
             int stack_padding = stack_args.size() % 2 == 0 ? 0 : 8;
             if (stack_padding != 0) {
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::Type::QuadWord, ASM::Imm(stack_padding), ASM::Reg(ASM::Reg::Name::SP)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::QuadWord(),
+                                                      ASM::Imm(stack_padding), ASM::Reg(ASM::Reg::Name::SP)));
             }
 
             // register passed arguments
             for (int i = 0; i < int_args.size(); i++) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(int_args[i]),convert_value(int_args[i]), ASM::Reg(int_registers[i])));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(int_args[i]), convert_value(int_args[i]),
+                                                   ASM::Reg(int_registers[i])));
             }
 
             for (int i = 0; i < double_args.size(); i++) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(double_args[i]), convert_value(double_args[i]), ASM::Reg(double_registers[i])));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(double_args[i]), convert_value(double_args[i]),
+                                                   ASM::Reg(double_registers[i])));
             }
 
             // stack passed arguments
-            for (auto& stack_arg : stack_args | std::views::reverse) {
+            for (auto &stack_arg: stack_args | std::views::reverse) {
                 auto arg = convert_value(stack_arg);
                 auto type = get_type_for_value(stack_arg);
-                if (std::holds_alternative<ASM::Imm>(arg) || std::holds_alternative<ASM::Reg>(arg) || type == ASM::Type::LongWord || type == ASM::Type::Double) {
+                if (std::holds_alternative<ASM::Imm>(arg) || std::holds_alternative<ASM::Reg>(arg) ||
+                    std::holds_alternative<ASM::LongWord>(type) || std::holds_alternative<ASM::Double>(type)) {
                     instructions.emplace_back(ASM::Push(arg));
                 } else {
                     instructions.emplace_back(ASM::Mov(type, arg, ASM::Reg(ASM::Reg::Name::AX)));
@@ -263,123 +322,187 @@ namespace codegen {
             int bytes_to_remove = 8 * stack_args.size() + stack_padding;
 
             if (bytes_to_remove != 0) {
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::Type::QuadWord, ASM::Imm(bytes_to_remove), ASM::Reg(ASM::Reg::Name::SP)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::QuadWord(),
+                                                      ASM::Imm(bytes_to_remove), ASM::Reg(ASM::Reg::Name::SP)));
             }
 
-            if (get_type_for_value(call.destination) == ASM::Type::Double) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::XMM0), convert_value(call.destination)));
+            if (std::holds_alternative<ASM::Double>(get_type_for_value(call.destination))) {
+                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::XMM0),
+                                                   convert_value(call.destination)));
             } else {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::AX), convert_value(call.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::AX),
+                                                   convert_value(call.destination)));
             }
         }
 
-        void convert_sign_extend(const IR::SignExtend & instruction, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Movsx(convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_sign_extend(const IR::SignExtend &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Movsx(convert_value(instruction.source),
+                                                 convert_value(instruction.destination)));
         }
 
-        void convert_trunctate(const IR::Truncate & instruction, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Mov(ASM::Type::LongWord, convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_trunctate(const IR::Truncate &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(ASM::LongWord(), convert_value(instruction.source),
+                                               convert_value(instruction.destination)));
         }
 
-        void convert_zero_extend(const IR::ZeroExtend & instruction, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::MovZeroExtend(convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_zero_extend(const IR::ZeroExtend &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::MovZeroExtend(convert_value(instruction.source),
+                                                         convert_value(instruction.destination)));
         }
 
-        void convert_double_to_int(const IR::DoubleToInt & instruction, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Cvttsd2si(get_type_for_value(instruction.destination),convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_double_to_int(const IR::DoubleToInt &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Cvttsd2si(get_type_for_value(instruction.destination),
+                                                     convert_value(instruction.source),
+                                                     convert_value(instruction.destination)));
         }
 
-        void convert_double_to_uint(const IR::DoubleToUInt & instruction, std::vector<ASM::Instruction> & instructions) {
+        void convert_double_to_uint(const IR::DoubleToUInt &instruction, std::vector<ASM::Instruction> &instructions) {
             // no asm instruction for this conversion!
 
-            if (get_type_for_value(instruction.destination) == ASM::Type::LongWord) {
+            if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.destination))) {
                 // when converting to unsigned int we can emit conversion to unsigned long and truncate the result
-                instructions.emplace_back(ASM::Cvttsd2si(ASM::Type::QuadWord,convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
-                instructions.emplace_back(ASM::Mov(ASM::Type::LongWord, ASM::Reg(ASM::Reg::Name::AX), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Cvttsd2si(ASM::QuadWord(), convert_value(instruction.source),
+                                                         ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Mov(ASM::LongWord(), ASM::Reg(ASM::Reg::Name::AX),
+                                                   convert_value(instruction.destination)));
             } else {
                 // when converting to unsigned long we first check if the result will fit into signed long
                 ASM::Operand max_value;
                 if (constants.contains(std::make_pair(std::numeric_limits<std::int64_t>::max() + 1, 8))) {
-                    max_value = ASM::Data(constants[std::make_pair(static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1, 8)]);
+                    max_value = ASM::Data(
+                        constants[std::make_pair(
+                            static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max()) + 1, 8)]);
                 } else {
                     auto label = gen_const_label();
-                    asmProgram.items.emplace_back(ASM::StaticConstant(label, 8, InitialDouble(static_cast<std::uint64_t>(std::numeric_limits<std::int64_t>::max())+ 1)));
+                    asmProgram.items.emplace_back(ASM::StaticConstant(label, 8, Initial{
+                                                                          InitialDouble(
+                                                                              static_cast<std::uint64_t>(
+                                                                                  std::numeric_limits<
+                                                                                      std::int64_t>::max()) + 1)
+                                                                      }));
                     max_value = ASM::Data(label);
                 }
                 auto end_label = gen_jump_label("end");
                 auto out_of_range_label = gen_jump_label("out_of_range_label");
-                instructions.emplace_back(ASM::Cmp(ASM::Type::Double, max_value, convert_value(instruction.source)));
+                instructions.emplace_back(ASM::Cmp(ASM::Double(), max_value, convert_value(instruction.source)));
                 instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::AE, out_of_range_label));
 
                 // if result fits into signed long we can convert it normally
-                instructions.emplace_back(ASM::Cvttsd2si(ASM::Type::QuadWord,convert_value(instruction.source), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Cvttsd2si(ASM::QuadWord(), convert_value(instruction.source),
+                                                         convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::Jmp(end_label));
 
                 // if result does not fit into signed long we need to subtract LONG_MAX + 1 before conversion and add it after
                 instructions.emplace_back(ASM::Label(out_of_range_label));
-                instructions.emplace_back(ASM::Mov(ASM::Type::Double, convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::XMM1)));
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::Type::Double, max_value, ASM::Reg(ASM::Reg::Name::XMM1)));
-                instructions.emplace_back(ASM::Cvttsd2si(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::XMM1), convert_value(instruction.destination)));
-                instructions.emplace_back(ASM::Mov(ASM::Type::QuadWord, ASM::Imm(std::numeric_limits<std::int64_t>::max() + 1), ASM::Reg(ASM::Reg::Name::DX)));
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::DX), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(ASM::Double(), convert_value(instruction.source),
+                                                   ASM::Reg(ASM::Reg::Name::XMM1)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::Double(), max_value,
+                                                      ASM::Reg(ASM::Reg::Name::XMM1)));
+                instructions.emplace_back(ASM::Cvttsd2si(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::XMM1),
+                                                         convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(ASM::QuadWord(),
+                                                   ASM::Imm(std::numeric_limits<std::int64_t>::max() + 1),
+                                                   ASM::Reg(ASM::Reg::Name::DX)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::QuadWord(),
+                                                      ASM::Reg(ASM::Reg::Name::DX),
+                                                      convert_value(instruction.destination)));
 
                 instructions.emplace_back(ASM::Label(end_label));
             }
         }
 
-        void convert_int_to_double(const IR::IntToDouble & instruction, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Cvtsi2sd(get_type_for_value(instruction.source), convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_int_to_double(const IR::IntToDouble &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Cvtsi2sd(get_type_for_value(instruction.source),
+                                                    convert_value(instruction.source),
+                                                    convert_value(instruction.destination)));
         }
 
 
-        void convert_uint_to_double(const IR::UIntToDouble & instruction, std::vector<ASM::Instruction> & instructions) {
+        void convert_uint_to_double(const IR::UIntToDouble &instruction, std::vector<ASM::Instruction> &instructions) {
             // no asm instruction for this conversion
 
             // when converting an unsigned integer we can zero extend it and emit conversion from signed long to double
-            if (get_type_for_value(instruction.source) == ASM::Type::LongWord) {
-                instructions.emplace_back(ASM::MovZeroExtend(convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
-                instructions.emplace_back(ASM::Cvtsi2sd(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::AX),  convert_value(instruction.destination)));
+            if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.source))) {
+                instructions.emplace_back(
+                    ASM::MovZeroExtend(convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Cvtsi2sd(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::AX),
+                                                        convert_value(instruction.destination)));
             } else {
                 // when converting an unsigned long we first check if we can fit it into signed long
                 auto end_label = gen_jump_label("end");
                 auto out_of_range_label = gen_jump_label("out_of_range");
 
-                instructions.emplace_back(ASM::Cmp(ASM::Type::QuadWord, ASM::Imm(0), convert_value(instruction.source)));
-                instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::L,out_of_range_label));
+                instructions.emplace_back(ASM::Cmp(ASM::QuadWord(), ASM::Imm(0), convert_value(instruction.source)));
+                instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::L, out_of_range_label));
 
                 // if source fits into signed long we convert it normally
-                instructions.emplace_back(ASM::Cvtsi2sd(ASM::Type::QuadWord, convert_value(instruction.source), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Cvtsi2sd(ASM::QuadWord(), convert_value(instruction.source),
+                                                        convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::Jmp(end_label));
 
                 // if source does not fit we divide it by two before conversion and multiply by 2 after conversion
                 instructions.emplace_back(ASM::Label(out_of_range_label));
-                instructions.emplace_back(ASM::Mov(ASM::Type::QuadWord, convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
-                instructions.emplace_back(ASM::Mov(ASM::Type::QuadWord,ASM::Reg(ASM::Reg::Name::AX), ASM::Reg(ASM::Reg::Name::DX)));
-                instructions.emplace_back(ASM::Unary(ASM::Unary::Operator::Shr, ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::DX)));
+                instructions.emplace_back(ASM::Mov(ASM::QuadWord(), convert_value(instruction.source),
+                                                   ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Mov(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::AX),
+                                                   ASM::Reg(ASM::Reg::Name::DX)));
+                instructions.emplace_back(ASM::Unary(ASM::Unary::Operator::Shr, ASM::QuadWord(),
+                                                     ASM::Reg(ASM::Reg::Name::DX)));
                 // round to odd to avoid double rounding error
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::AND, ASM::Type::QuadWord, ASM::Imm(1), ASM::Reg(ASM::Reg::Name::AX)));
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::OR, ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::AX), ASM::Reg(ASM::Reg::Name::DX)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::AND, ASM::QuadWord(), ASM::Imm(1),
+                                                      ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::OR, ASM::QuadWord(),
+                                                      ASM::Reg(ASM::Reg::Name::AX), ASM::Reg(ASM::Reg::Name::DX)));
 
-                instructions.emplace_back(ASM::Cvtsi2sd(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::DX), convert_value(instruction.destination)));
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::Type::Double, convert_value(instruction.destination), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Cvtsi2sd(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::DX),
+                                                        convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::ADD, ASM::Double(),
+                                                      convert_value(instruction.destination),
+                                                      convert_value(instruction.destination)));
 
                 instructions.emplace_back(ASM::Label(end_label));
             }
-
         }
 
-        void convert_load(const IR::Load & load, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Mov(ASM::Type::QuadWord, convert_value(load.source_ptr), ASM::Reg(ASM::Reg::Name::AX)));
-            instructions.emplace_back(ASM::Mov(get_type_for_value(load.destination), ASM::Memory(ASM::Reg(ASM::Reg::Name::AX), 0), convert_value(load.destination)));
+        void convert_load(const IR::Load &load, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(ASM::QuadWord(), convert_value(load.source_ptr),
+                                               ASM::Reg(ASM::Reg::Name::AX)));
+            instructions.emplace_back(ASM::Mov(get_type_for_value(load.destination),
+                                               ASM::Memory(ASM::Reg(ASM::Reg::Name::AX), 0),
+                                               convert_value(load.destination)));
         }
 
-        void convert_store(const IR::Store & store, std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Mov(ASM::Type::QuadWord, convert_value(store.destination_ptr), ASM::Reg(ASM::Reg::Name::AX)));
-            instructions.emplace_back(ASM::Mov(get_type_for_value(store.source), convert_value(store.source), ASM::Memory(ASM::Reg(ASM::Reg::Name::AX), 0)));
+        void convert_store(const IR::Store &store, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(ASM::QuadWord(), convert_value(store.destination_ptr),
+                                               ASM::Reg(ASM::Reg::Name::AX)));
+            instructions.emplace_back(ASM::Mov(get_type_for_value(store.source), convert_value(store.source),
+                                               ASM::Memory(ASM::Reg(ASM::Reg::Name::AX), 0)));
         }
 
-        void convert_get_address(const IR::GetAddress & instruction,  std::vector<ASM::Instruction> & instructions) {
-            instructions.emplace_back(ASM::Lea(convert_value(instruction.source), convert_value(instruction.destination)));
+        void convert_get_address(const IR::GetAddress &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Lea(convert_value(instruction.source),
+                                               convert_value(instruction.destination)));
+        }
+
+        void convert_copy_to_offset(const IR::CopyToOffset &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.source),
+                                               convert_value(instruction.source),
+                                               ASM::PseudoMem(instruction.destination, instruction.offset)));
+        }
+
+        void convert_add_ptr(const IR::AddPtr &instruction, std::vector<ASM::Instruction> &instructions) {
+            instructions.emplace_back(ASM::Mov(ASM::QuadWord(), convert_value(instruction.ptr), ASM::Reg(ASM::Reg::Name::AX)));
+            if (std::holds_alternative<IR::Constant>(instruction.index)) {
+                instructions.emplace_back(ASM::Lea(ASM::Memory(ASM::Reg(ASM::Reg::Name::AX), std::get<ASM::Imm>(convert_value(instruction.index)).value * instruction.scale), convert_value(instruction.destination)));
+                return;
+            }
+            instructions.emplace_back(ASM::Mov(ASM::QuadWord(), convert_value(instruction.index), ASM::Reg(ASM::Reg::Name::DX)));
+            if (instruction.scale == 1 || instruction.scale == 2 || instruction.scale == 4 || instruction.scale == 8) {
+                instructions.emplace_back(ASM::Lea(ASM::Indexed(ASM::Reg(ASM::Reg::Name::AX), ASM::Reg(ASM::Reg::Name::DX), instruction.scale), convert_value(instruction.destination)));
+            } else {
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::MULT, ASM::QuadWord(), ASM::Imm(instruction.scale), ASM::Reg(ASM::Reg::Name::DX)));
+                instructions.emplace_back(ASM::Lea(ASM::Indexed(ASM::Reg(ASM::Reg::Name::AX), ASM::Reg(ASM::Reg::Name::DX), 1), convert_value(instruction.destination)));
+            }
         }
 
         void convert_instruction(const IR::Instruction &instruction, std::vector<ASM::Instruction> &instructions) {
@@ -411,45 +534,53 @@ namespace codegen {
                            [this, &instructions](const IR::Call &instruction) {
                                convert_call(instruction, instructions);
                            },
-                            [this, &instructions](const IR::SignExtend& instruction) {
-                                convert_sign_extend(instruction, instructions);
-                            },
-                        [this, &instructions](const IR::Truncate &instruction) {
-                            convert_trunctate(instruction, instructions);
-                        },
-                [this, &instructions](const IR::ZeroExtend &instruction) {
-                    convert_zero_extend(instruction, instructions);
-                },
-                [this, &instructions](const IR::DoubleToInt &instruction) {
-                    convert_double_to_int(instruction, instructions);
-                },
-                [this, &instructions](const IR::DoubleToUInt &instruction) {
-                    convert_double_to_uint(instruction, instructions);
-                },
-                [this, &instructions](const IR::IntToDouble &instruction) {
-                    convert_int_to_double(instruction, instructions);
-                },
-                [this, &instructions](const IR::UIntToDouble &instruction) {
-                    convert_uint_to_double(instruction, instructions);
-                },
-                [this, &instructions](const IR::Load& instruction) {
-                    convert_load(instruction, instructions);
-                },
-                [this, &instructions](const IR::Store &instruction) {
-                    convert_store(instruction, instructions);
-                },
-                [this, &instructions](const IR::GetAddress &instruction) {
-                    convert_get_address(instruction, instructions);
-                }
+                           [this, &instructions](const IR::SignExtend &instruction) {
+                               convert_sign_extend(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Truncate &instruction) {
+                               convert_trunctate(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::ZeroExtend &instruction) {
+                               convert_zero_extend(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::DoubleToInt &instruction) {
+                               convert_double_to_int(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::DoubleToUInt &instruction) {
+                               convert_double_to_uint(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::IntToDouble &instruction) {
+                               convert_int_to_double(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::UIntToDouble &instruction) {
+                               convert_uint_to_double(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Load &instruction) {
+                               convert_load(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::Store &instruction) {
+                               convert_store(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::GetAddress &instruction) {
+                               convert_get_address(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::CopyToOffset &instruction) {
+                               convert_copy_to_offset(instruction, instructions);
+                           },
+                           [this, &instructions](const IR::AddPtr &instruction) {
+                               convert_add_ptr(instruction, instructions);
+                           }
 
                        }, instruction);
         }
 
         void convert_return(const IR::Return &instruction, std::vector<ASM::Instruction> &instructions) {
-            if (get_type_for_value(instruction.value) == ASM::Type::Double) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value), convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::XMM0)));
+            if (std::holds_alternative<ASM::Double>(get_type_for_value(instruction.value))) {
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value),
+                                                   convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::XMM0)));
             } else {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value), convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value),
+                                                   convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::AX)));
             }
             instructions.emplace_back(ASM::Ret());
         }
@@ -457,22 +588,28 @@ namespace codegen {
         ASM::Operand convert_value(const IR::Value &value) {
             return std::visit(overloaded{
                                   [this](const IR::Constant &constant) -> ASM::Operand {
-                                      return std::visit(overloaded {
-                                          [this](const AST::ConstDouble& c) -> ASM::Operand {
-
-                                              if (constants.contains(std::make_pair(c.value, 8))) {
-                                                  return ASM::Data(constants[std::make_pair(c.value, 8)]);
-                                              }
-                                              auto label = gen_const_label();
-                                              asmProgram.items.emplace_back(ASM::StaticConstant(label, 8, InitialDouble(c.value)));
-                                              return ASM::Data(label);
-                                          },
-                                          [](const auto& c) -> ASM::Operand {
-                                              return ASM::Imm(c.value);
-                                          }
-                                      }, constant.constant);
+                                      return std::visit(overloaded{
+                                                            [this](const AST::ConstDouble &c) -> ASM::Operand {
+                                                                if (constants.contains(std::make_pair(c.value, 8))) {
+                                                                    return ASM::Data(
+                                                                        constants[std::make_pair(c.value, 8)]);
+                                                                }
+                                                                auto label = gen_const_label();
+                                                                asmProgram.items.emplace_back(
+                                                                    ASM::StaticConstant(
+                                                                        label, 8, Initial{InitialDouble(c.value)}));
+                                                                return ASM::Data(label);
+                                                            },
+                                                            [](const auto &c) -> ASM::Operand {
+                                                                return ASM::Imm(c.value);
+                                                            }
+                                                        }, constant.constant);
                                   },
-                                  [](const IR::Variable &variable) -> ASM::Operand {
+                                  [this](const IR::Variable &variable) -> ASM::Operand {
+                                      if (std::holds_alternative<
+                                          ASM::ByteArray>(get_type_for_identifier(variable.name))) {
+                                          return ASM::PseudoMem(variable.name, 0);
+                                      }
                                       return ASM::Pseudo(variable.name);
                                   },
 
@@ -481,31 +618,41 @@ namespace codegen {
 
         void convert_unary(const IR::Unary &instruction, std::vector<ASM::Instruction> &instructions) {
             if (instruction.op == IR::Unary::Operator::LOGICAL_NOT) {
-                if (get_type_for_value(instruction.source) == ASM::Type::Double) {
-                    instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Type::Double, ASM::Reg(ASM::Reg::Name::XMM0), ASM::Reg(ASM::Reg::Name::XMM0)));
-                    instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.source),  convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::XMM0)));
+                if (std::holds_alternative<ASM::Double>(get_type_for_value(instruction.source))) {
+                    instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Double(),
+                                                          ASM::Reg(ASM::Reg::Name::XMM0),
+                                                          ASM::Reg(ASM::Reg::Name::XMM0)));
+                    instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.source),
+                                                       convert_value(instruction.source),
+                                                       ASM::Reg(ASM::Reg::Name::XMM0)));
                 } else {
-                    instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.source), ASM::Imm(0), convert_value(instruction.source)));
+                    instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.source), ASM::Imm(0),
+                                                       convert_value(instruction.source)));
                 }
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::E, convert_value(instruction.destination)));
                 return;
             }
 
-            if (instruction.op == IR::Unary::Operator::NEGATE && get_type_for_value(instruction.source) == ASM::Type::Double) {
+            if (instruction.op == IR::Unary::Operator::NEGATE && std::holds_alternative<ASM::Double>(
+                    get_type_for_value(instruction.source))) {
                 // no asm instruction for negation of double instead xor it with -0.0
                 ASM::Operand mask;
                 if (constants.contains(std::make_pair(-0.0, 16))) {
                     mask = ASM::Data(constants[std::make_pair(-0.0, 16)]);
                 } else {
                     auto label = gen_const_label();
-                    asmProgram.items.emplace_back(ASM::StaticConstant(label, 16, InitialDouble(-0.0)));
+                    asmProgram.items.emplace_back(ASM::StaticConstant(label, 16, Initial{InitialDouble(-0.0)}));
                     mask = ASM::Data(label);
                 }
 
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.source), convert_value(instruction.source),
-                                               convert_value(instruction.destination)));
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, get_type_for_value(instruction.source), mask, convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.source),
+                                                   convert_value(instruction.source),
+                                                   convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR,
+                                                      get_type_for_value(instruction.source), mask,
+                                                      convert_value(instruction.destination)));
                 return;
             }
 
@@ -518,9 +665,12 @@ namespace codegen {
                 }
             };
 
-            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.source), convert_value(instruction.source),
+            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.source),
+                                               convert_value(instruction.source),
                                                convert_value(instruction.destination)));
-            instructions.emplace_back(ASM::Unary(convert_op(instruction.op),get_type_for_value(instruction.destination), convert_value(instruction.destination)));
+            instructions.emplace_back(ASM::Unary(convert_op(instruction.op),
+                                                 get_type_for_value(instruction.destination),
+                                                 convert_value(instruction.destination)));
         }
 
         void convert_binary(const IR::Binary &instruction, std::vector<ASM::Instruction> &instructions) {
@@ -532,15 +682,21 @@ namespace codegen {
                 return;
             }
 
-            if ((instruction.op == IR::Binary::Operator::DIVIDE && get_type_for_value(instruction.left_source) != ASM::Type::Double) || instruction.op == IR::Binary::Operator::REMAINDER) {
+            if ((instruction.op == IR::Binary::Operator::DIVIDE && !std::holds_alternative<
+                     ASM::Double>(get_type_for_value(instruction.left_source))) || instruction.op ==
+                IR::Binary::Operator::REMAINDER) {
                 instructions.emplace_back(
-                    ASM::Mov(get_type_for_value(instruction.left_source), convert_value(instruction.left_source), ASM::Reg(ASM::Reg::Name::AX)));
+                    ASM::Mov(get_type_for_value(instruction.left_source), convert_value(instruction.left_source),
+                             ASM::Reg(ASM::Reg::Name::AX)));
                 if (is_unsigned(instruction.left_source)) {
-                    instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.left_source), ASM::Imm(0), ASM::Reg(ASM::Reg::Name::DX)));
-                    instructions.emplace_back(ASM::Div(get_type_for_value(instruction.left_source), convert_value(instruction.right_source)));
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.left_source), ASM::Imm(0),
+                                                       ASM::Reg(ASM::Reg::Name::DX)));
+                    instructions.emplace_back(ASM::Div(get_type_for_value(instruction.left_source),
+                                                       convert_value(instruction.right_source)));
                 } else {
                     instructions.emplace_back(ASM::Cdq(get_type_for_value(instruction.left_source)));
-                    instructions.emplace_back(ASM::Idiv(get_type_for_value(instruction.left_source), convert_value(instruction.right_source)));
+                    instructions.emplace_back(ASM::Idiv(get_type_for_value(instruction.left_source),
+                                                        convert_value(instruction.right_source)));
                 }
                 instructions.emplace_back(ASM::Mov(
                     get_type_for_value(instruction.left_source),
@@ -559,7 +715,8 @@ namespace codegen {
                         case IR::Binary::Operator::SHIFT_LEFT:
                             return ASM::Binary::Operator::SHL;
                         case IR::Binary::Operator::SHIFT_RIGHT:
-                            return op_unsigned ? ASM::Binary::Operator::SHR : ASM::Binary::Operator::SAR; // arithmetic shift when performed on signed integers
+                            return op_unsigned ? ASM::Binary::Operator::SHR : ASM::Binary::Operator::SAR;
+                        // arithmetic shift when performed on signed integers
                         case IR::Binary::Operator::BITWISE_AND:
                             return ASM::Binary::Operator::AND;
                         case IR::Binary::Operator::BITWISE_OR:
@@ -574,9 +731,11 @@ namespace codegen {
                     }
                 };
 
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.left_source), convert_value(instruction.left_source),
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.left_source),
+                                                   convert_value(instruction.left_source),
                                                    convert_value(instruction.destination)));
-                instructions.emplace_back(ASM::Binary( convert_op(instruction.op),get_type_for_value(instruction.left_source),
+                instructions.emplace_back(ASM::Binary(convert_op(instruction.op),
+                                                      get_type_for_value(instruction.left_source),
                                                       convert_value(instruction.right_source),
                                                       convert_value(instruction.destination)));
             }
@@ -584,7 +743,8 @@ namespace codegen {
 
         void convert_relational(const IR::Binary &instruction, std::vector<ASM::Instruction> &instructions) {
             // add comment!
-            bool use_alt_instructions = is_unsigned(instruction.left_source) || get_type_for_value(instruction.left_source) == ASM::Type::Double;
+            bool use_alt_instructions = is_unsigned(instruction.left_source) || std::holds_alternative<ASM::Double>(
+                                            get_type_for_value(instruction.left_source)) || is_pointer(instruction.left_source);
             auto convert_op = [use_alt_instructions](const IR::Binary::Operator &op) {
                 switch (op) {
                     case IR::Binary::Operator::EQUAL:
@@ -606,54 +766,61 @@ namespace codegen {
             // fixes for nan
             // currently copied from gcc output
             // todo: explain how it works
-            bool is_double = get_type_for_value(instruction.left_source) == ASM::Type::Double;
+            bool is_double = std::holds_alternative<ASM::Double>(get_type_for_value(instruction.left_source));
             auto op = convert_op(instruction.op);
             // TODO: cleanup
             if (is_double && op == ASM::ConditionCode::B) {
                 // swap right and left
                 instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source),
-                                               convert_value(instruction.left_source), convert_value(instruction.right_source)));
+                                                   convert_value(instruction.left_source),
+                                                   convert_value(instruction.right_source)));
 
                 op = ASM::ConditionCode::A;
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(op, convert_value(instruction.destination)));
             } else if (is_double && op == ASM::ConditionCode::BE) {
                 instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source),
-                                                convert_value(instruction.left_source), convert_value(instruction.right_source)));
+                                                   convert_value(instruction.left_source),
+                                                   convert_value(instruction.right_source)));
 
                 op = ASM::ConditionCode::AE;
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(op, convert_value(instruction.destination)));
             } else if (is_double && op == ASM::ConditionCode::E) {
                 // TODO: gcc handles this more efficently
                 auto end_label = gen_jump_label("end");
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source), convert_value(instruction.right_source),
-                                               convert_value(instruction.left_source)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source),
+                                                   convert_value(instruction.right_source),
+                                                   convert_value(instruction.left_source)));
                 // set to zero if parity is 1
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::NP, convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::P, end_label));
                 instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::E, convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::Label(end_label));
             } else if (is_double && op == ASM::ConditionCode::NE) {
                 auto end_label = gen_jump_label("end");
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source), convert_value(instruction.right_source),
-                                               convert_value(instruction.left_source)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source),
+                                                   convert_value(instruction.right_source),
+                                                   convert_value(instruction.left_source)));
                 // set to zero if parity is 1
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::P, convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::P, end_label));
                 instructions.emplace_back(ASM::SetCC(ASM::ConditionCode::NE, convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::Label(end_label));
             } else {
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source), convert_value(instruction.right_source),
-                                               convert_value(instruction.left_source)));
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0), convert_value(instruction.destination)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.left_source),
+                                                   convert_value(instruction.right_source),
+                                                   convert_value(instruction.left_source)));
+                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), ASM::Imm(0),
+                                                   convert_value(instruction.destination)));
                 instructions.emplace_back(ASM::SetCC(op, convert_value(instruction.destination)));
             }
-
-
-
         }
 
         void convert_jump(const IR::Jump &instruction, std::vector<ASM::Instruction> &instructions) {
@@ -661,22 +828,30 @@ namespace codegen {
         }
 
         void convert_jump_if_zero(const IR::JumpIfZero &instruction, std::vector<ASM::Instruction> &instructions) {
-            if (get_type_for_value(instruction.condition) == ASM::Type::Double) {
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Type::Double, ASM::Reg(ASM::Reg::Name::XMM0), ASM::Reg(ASM::Reg::Name::XMM0)));
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition),  convert_value(instruction.condition), ASM::Reg(ASM::Reg::Name::XMM0)));
+            if (std::holds_alternative<ASM::Double>(get_type_for_value(instruction.condition))) {
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Double(),
+                                                      ASM::Reg(ASM::Reg::Name::XMM0), ASM::Reg(ASM::Reg::Name::XMM0)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition),
+                                                   convert_value(instruction.condition),
+                                                   ASM::Reg(ASM::Reg::Name::XMM0)));
             } else {
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition), ASM::Imm(0), convert_value(instruction.condition)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition), ASM::Imm(0),
+                                                   convert_value(instruction.condition)));
             }
             instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::E, instruction.target));
         }
 
         void convert_jump_if_not_zero(const IR::JumpIfNotZero &instruction,
                                       std::vector<ASM::Instruction> &instructions) {
-            if (get_type_for_value(instruction.condition) == ASM::Type::Double) {
-                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Type::Double, ASM::Reg(ASM::Reg::Name::XMM0), ASM::Reg(ASM::Reg::Name::XMM0)));
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition),  convert_value(instruction.condition), ASM::Reg(ASM::Reg::Name::XMM0)));
+            if (std::holds_alternative<ASM::Double>(get_type_for_value(instruction.condition))) {
+                instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::XOR, ASM::Double(),
+                                                      ASM::Reg(ASM::Reg::Name::XMM0), ASM::Reg(ASM::Reg::Name::XMM0)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition),
+                                                   convert_value(instruction.condition),
+                                                   ASM::Reg(ASM::Reg::Name::XMM0)));
             } else {
-                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition), ASM::Imm(0), convert_value(instruction.condition)));
+                instructions.emplace_back(ASM::Cmp(get_type_for_value(instruction.condition), ASM::Imm(0),
+                                                   convert_value(instruction.condition)));
             }
             instructions.emplace_back(ASM::JmpCC(ASM::ConditionCode::NE, instruction.target));
         }
@@ -686,15 +861,17 @@ namespace codegen {
         }
 
         void convert_copy(const IR::Copy &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination),convert_value(instruction.source),
+            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination),
+                                               convert_value(instruction.source),
                                                convert_value(instruction.destination)));
         }
 
         std::string gen_const_label() {
             auto label = "const." + std::to_string(cnt++);
-            asmSymbols[label] = ASM::ObjectSymbol(ASM::Type::Double, true, true);
+            asmSymbols[label] = ASM::ObjectSymbol(ASM::Double(), true, true);
             return label;
         }
+
         std::string gen_jump_label(std::string label) {
             // codegen prefix needed?
             return "codegen." + label + std::to_string(cnt++);
@@ -708,12 +885,14 @@ namespace codegen {
         std::map<std::pair<double, int>, std::string> constants; // TODO: support other value types;
         int cnt = 0;
         IR::Program IRProgram;
-        std::unordered_map<std::string, Symbol>* symbols;
+        std::unordered_map<std::string, Symbol> *symbols;
     };
 
     class ReplacePseudoRegistersPass {
     public:
-        explicit ReplacePseudoRegistersPass(ASM::Program *asmProgram, std::unordered_map<std::string, ASM::Symbol>* symbols) : asmProgram(asmProgram), symbols(symbols) {
+        explicit ReplacePseudoRegistersPass(ASM::Program *asmProgram,
+                                            std::unordered_map<std::string, ASM::Symbol> *
+                                            symbols) : asmProgram(asmProgram), symbols(symbols) {
         }
 
         void process() {
@@ -763,25 +942,25 @@ namespace codegen {
                                replace(mov.destination);
                                replace(mov.source);
                            },
-                            [this](ASM::Div& div) {
-                                replace(div.divisor);
-                            },
-                [this](ASM::MovZeroExtend& movz) {
-                    replace(movz.destination);
-                    replace(movz.source);
-                },
-                [this](ASM::Cvtsi2sd &cvtsi2sd) {
-                    replace(cvtsi2sd.destination);
-                    replace(cvtsi2sd.source);
-                },
-                [this](ASM::Cvttsd2si& cvttsd2si) {
-                    replace(cvttsd2si.destination);
-                    replace(cvttsd2si.source);
-                },
-                [this](ASM::Lea &lea) {
-                  replace(lea.destination);
-                    replace(lea.source);
-                },
+                           [this](ASM::Div &div) {
+                               replace(div.divisor);
+                           },
+                           [this](ASM::MovZeroExtend &movz) {
+                               replace(movz.destination);
+                               replace(movz.source);
+                           },
+                           [this](ASM::Cvtsi2sd &cvtsi2sd) {
+                               replace(cvtsi2sd.destination);
+                               replace(cvtsi2sd.source);
+                           },
+                           [this](ASM::Cvttsd2si &cvttsd2si) {
+                               replace(cvttsd2si.destination);
+                               replace(cvttsd2si.source);
+                           },
+                           [this](ASM::Lea &lea) {
+                               replace(lea.destination);
+                               replace(lea.source);
+                           },
                            [this](auto &) {
                            }
                        }, instruction);
@@ -791,31 +970,43 @@ namespace codegen {
 
     private:
         void replace(ASM::Operand &operand) {
-            if (!std::holds_alternative<ASM::Pseudo>(operand)) {
+            std::string name;
+            int add_offset = 0;
+            if (std::holds_alternative<ASM::Pseudo>(operand)) {
+                name = std::get<ASM::Pseudo>(operand).name;
+            } else if (std::holds_alternative<ASM::PseudoMem>(operand)) {
+                name = std::get<ASM::PseudoMem>(operand).identifier;
+                add_offset = std::get<ASM::PseudoMem>(operand).offset;
+            } else {
                 return;
             }
 
-            auto pseudo = std::get<ASM::Pseudo>(operand);
-
-            if (symbols->contains(pseudo.name) && std::get<ASM::ObjectSymbol>((*symbols)[pseudo.name]).is_static) {
-                operand = ASM::Data(pseudo.name);
+            if (symbols->contains(name) && std::get<ASM::ObjectSymbol>((*symbols)[name]).is_static) {
+                operand = ASM::Data(name);
             } else {
-                if (m_offsets.contains(pseudo.name)) {
-                    operand = ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), m_offsets[pseudo.name]);
+                if (m_offsets.contains(name)) {
+                    operand = ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), m_offsets[name] + add_offset);
                 } else {
-                    m_offsets[pseudo.name] = offset;
-                    if (std::get<ASM::ObjectSymbol>((*symbols)[pseudo.name]).type == ASM::Type::LongWord) {
+                    m_offsets[name] = offset;
+                    // why we only round down in case of 8 bytes and above?
+                    auto& type = std::get<ASM::ObjectSymbol>((*symbols)[name]).type;
+                    if (std::holds_alternative<ASM::LongWord>(type)) {
                         offset -= 4;
                     } else {
-                        offset -= 8;
+                        if (std::holds_alternative<ASM::ByteArray>(type)) {
+                            offset -= std::get<ASM::ByteArray>(type).size;
+                        } else {
+                            offset -= 8;
+                        }
+                        // is it good alignment always?
                         offset = ((offset - 15) / 16) * 16;
                     }
-                    operand = ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), m_offsets[pseudo.name] = offset);
+                    operand = ASM::Memory(ASM::Reg(ASM::Reg::Name::BP), (m_offsets[name] = offset) + add_offset);
                 }
             }
         }
 
-        std::unordered_map<std::string, ASM::Symbol>* symbols;
+        std::unordered_map<std::string, ASM::Symbol> *symbols;
         std::unordered_map<std::string, int> m_offsets;
         ASM::Program *asmProgram;
     };
@@ -837,7 +1028,8 @@ namespace codegen {
         void visit_function(ASM::Function &function) {
             std::vector<ASM::Instruction> fixed_instructions;
             int rounded_stack_size = ((-function.stack_size + 15) / 16) * 16;
-            fixed_instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::Type::QuadWord, ASM::Imm(rounded_stack_size), ASM::Reg(ASM::Reg::Name::SP)));
+            fixed_instructions.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::QuadWord(),
+                                                        ASM::Imm(rounded_stack_size), ASM::Reg(ASM::Reg::Name::SP)));
 
             for (auto &instruction: function.instructions) {
                 visit_instruction(instruction, fixed_instructions);
@@ -846,17 +1038,17 @@ namespace codegen {
             function.instructions = std::move(fixed_instructions);
         }
 
-        void fix_movsx(ASM::Movsx & mov, std::vector<ASM::Instruction> & output) {
+        void fix_movsx(ASM::Movsx &mov, std::vector<ASM::Instruction> &output) {
             if (std::holds_alternative<ASM::Imm>(mov.source)) {
                 auto source = mov.source;
                 mov.source = ASM::Reg(ASM::Reg::Name::R10);
-                output.emplace_back(ASM::Mov(ASM::Type::LongWord, source,mov.source));
+                output.emplace_back(ASM::Mov(ASM::LongWord(), source, mov.source));
             }
             if (is_memory_address(mov.destination)) {
                 auto destination = mov.destination;
                 mov.destination = ASM::Reg(ASM::Reg::Name::R11);
                 output.emplace_back(mov);
-                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, mov.destination, destination));
+                output.emplace_back(ASM::Mov(ASM::QuadWord(), mov.destination, destination));
             } else {
                 output.emplace_back(mov);
             }
@@ -864,7 +1056,8 @@ namespace codegen {
 
         bool is_xmm_reg(ASM::Reg::Name name) {
             switch (name) {
-                case ASM::Reg::Name::XMM0:case ASM::Reg::Name::XMM1:
+                case ASM::Reg::Name::XMM0:
+                case ASM::Reg::Name::XMM1:
                 case ASM::Reg::Name::XMM2:
                 case ASM::Reg::Name::XMM3:
                 case ASM::Reg::Name::XMM4:
@@ -873,36 +1066,38 @@ namespace codegen {
                 case ASM::Reg::Name::XMM7:
                 case ASM::Reg::Name::XMM14:
                 case ASM::Reg::Name::XMM15:
-                return true;
+                    return true;
                 default:
                     return false;
             }
         }
 
-        void fix_push(ASM::Push & push, std::vector<ASM::Instruction> & output) {
+        void fix_push(ASM::Push &push, std::vector<ASM::Instruction> &output) {
             if (should_fix_imm(push.value)) {
-                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, push.value, ASM::Reg(ASM::Reg::Name::R10)));
-                push.value= ASM::Reg(ASM::Reg::Name::R10);
+                output.emplace_back(ASM::Mov(ASM::QuadWord(), push.value, ASM::Reg(ASM::Reg::Name::R10)));
+                push.value = ASM::Reg(ASM::Reg::Name::R10);
             }
 
             if (std::holds_alternative<ASM::Reg>(push.value) && is_xmm_reg(std::get<ASM::Reg>(push.value).name)) {
-                output.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::Type::QuadWord, ASM::Imm(8), ASM::Reg(ASM::Reg::Name::SP)));
-                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, push.value, ASM::Memory(ASM::Reg(ASM::Reg::Name::SP), 0)));
+                output.emplace_back(ASM::Binary(ASM::Binary::Operator::SUB, ASM::QuadWord(), ASM::Imm(8),
+                                                ASM::Reg(ASM::Reg::Name::SP)));
+                output.emplace_back(ASM::Mov(ASM::QuadWord(), push.value,
+                                             ASM::Memory(ASM::Reg(ASM::Reg::Name::SP), 0)));
             } else {
                 output.emplace_back(push);
             }
         }
 
-        void fix_mov_zero_extend(const ASM::MovZeroExtend & mov, std::vector<ASM::Instruction> & output) {
+        void fix_mov_zero_extend(const ASM::MovZeroExtend &mov, std::vector<ASM::Instruction> &output) {
             if (std::holds_alternative<ASM::Reg>(mov.destination)) {
-                output.emplace_back(ASM::Mov(ASM::Type::LongWord, mov.source, mov.destination));
+                output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, mov.destination));
             } else if (is_memory_address(mov.destination)) {
-                output.emplace_back(ASM::Mov(ASM::Type::LongWord, mov.source, ASM::Reg(ASM::Reg::Name::R11)));
-                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::R11), mov.destination));
+                output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, ASM::Reg(ASM::Reg::Name::R11)));
+                output.emplace_back(ASM::Mov(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::R11), mov.destination));
             }
         }
 
-        void fix_cvtsi2d(ASM::Cvtsi2sd & cvtsi2sd, std::vector<ASM::Instruction> & output) {
+        void fix_cvtsi2d(ASM::Cvtsi2sd &cvtsi2sd, std::vector<ASM::Instruction> &output) {
             if (std::holds_alternative<ASM::Imm>(cvtsi2sd.source)) {
                 output.emplace_back(ASM::Mov(cvtsi2sd.type, cvtsi2sd.source, ASM::Reg(ASM::Reg::Name::R10)));
                 cvtsi2sd.source = ASM::Reg(ASM::Reg::Name::R10);
@@ -912,13 +1107,13 @@ namespace codegen {
                 auto destination = cvtsi2sd.destination;
                 cvtsi2sd.destination = ASM::Reg(ASM::Reg::Name::XMM15);
                 output.emplace_back(cvtsi2sd);
-                output.emplace_back(ASM::Mov(ASM::Type::Double, ASM::Reg(ASM::Reg::Name::XMM15), destination));
+                output.emplace_back(ASM::Mov(ASM::Double(), ASM::Reg(ASM::Reg::Name::XMM15), destination));
             } else {
                 output.emplace_back(cvtsi2sd);
             }
         }
 
-        void fix_cvttsd2si(ASM::Cvttsd2si & cvttsd2si, std::vector<ASM::Instruction> & output) {
+        void fix_cvttsd2si(ASM::Cvttsd2si &cvttsd2si, std::vector<ASM::Instruction> &output) {
             if (!std::holds_alternative<ASM::Reg>(cvttsd2si.destination)) {
                 auto destination = cvttsd2si.destination;
                 cvttsd2si.destination = ASM::Reg(ASM::Reg::Name::R11);
@@ -929,12 +1124,12 @@ namespace codegen {
             }
         }
 
-        void fix_lea(ASM::Lea & lea, std::vector<ASM::Instruction> & output) {
+        void fix_lea(ASM::Lea &lea, std::vector<ASM::Instruction> &output) {
             if (!std::holds_alternative<ASM::Reg>(lea.destination)) {
                 auto destination = lea.destination;
                 lea.destination = ASM::Reg(ASM::Reg::Name::R11);
                 output.emplace_back(lea);
-                output.emplace_back(ASM::Mov(ASM::Type::QuadWord, ASM::Reg(ASM::Reg::Name::R11), destination));
+                output.emplace_back(ASM::Mov(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::R11), destination));
             } else {
                 output.emplace_back(lea);
             }
@@ -951,53 +1146,52 @@ namespace codegen {
                            [this, &output](ASM::Idiv &idiv) {
                                fix_idiv(idiv, output);
                            },
-                            [this, &output](ASM::Cmp &cmp) {
-                                fix_cmp(cmp, output);
-                            },
-                             [this, &output](ASM::Movsx &mov) {
+                           [this, &output](ASM::Cmp &cmp) {
+                               fix_cmp(cmp, output);
+                           },
+                           [this, &output](ASM::Movsx &mov) {
                                fix_movsx(mov, output);
-                             },
-                            [this, &output](ASM::Push& push) {
-                                fix_push(push, output);
-                            },
-                [this, &output](ASM::Div &div) {
-                    fix_div(div, output);
-                },
-                [this, &output](ASM::MovZeroExtend &mov) {
-                    fix_mov_zero_extend(mov, output);
-                },
-                [this, &output](ASM::Cvtsi2sd &cvtsi2sd) {
-                    fix_cvtsi2d(cvtsi2sd, output);
-                },
-                [this, &output](ASM::Cvttsd2si& cvttsd2si) {
-                    fix_cvttsd2si(cvttsd2si, output);
-                },
-                [this, &output](ASM::Lea& lea) {
-                    fix_lea(lea, output);
-                },
+                           },
+                           [this, &output](ASM::Push &push) {
+                               fix_push(push, output);
+                           },
+                           [this, &output](ASM::Div &div) {
+                               fix_div(div, output);
+                           },
+                           [this, &output](ASM::MovZeroExtend &mov) {
+                               fix_mov_zero_extend(mov, output);
+                           },
+                           [this, &output](ASM::Cvtsi2sd &cvtsi2sd) {
+                               fix_cvtsi2d(cvtsi2sd, output);
+                           },
+                           [this, &output](ASM::Cvttsd2si &cvttsd2si) {
+                               fix_cvttsd2si(cvttsd2si, output);
+                           },
+                           [this, &output](ASM::Lea &lea) {
+                               fix_lea(lea, output);
+                           },
                            [&output](auto &instruction) {
                                output.emplace_back(instruction);
                            },
                        }, instruction);
         }
 
-        bool is_memory_address(const ASM::Operand& operand) {
-            return std::holds_alternative<ASM::Memory>(operand) || std::holds_alternative<ASM::Data>(operand);
+        bool is_memory_address(const ASM::Operand &operand) {
+            return std::holds_alternative<ASM::Memory>(operand) || std::holds_alternative<ASM::Data>(operand) || std::holds_alternative<ASM::Indexed>(operand);
         }
 
         void fix_mov(ASM::Mov &mov, std::vector<ASM::Instruction> &output) {
             if (is_memory_address(mov.src) && is_memory_address(mov.dst)) {
-                if (mov.type == ASM::Type::Double) {
+                if (std::holds_alternative<ASM::Double>(mov.type)) {
                     output.emplace_back(ASM::Mov{mov.type, mov.src, ASM::Reg(ASM::Reg::Name::XMM14)});
                     mov.src = ASM::Reg(ASM::Reg::Name::XMM14);
                 } else {
                     output.emplace_back(ASM::Mov{mov.type, mov.src, ASM::Reg(ASM::Reg::Name::R10)});
                     mov.src = ASM::Reg(ASM::Reg::Name::R10);
                 }
-
             }
-            if (should_fix_imm(mov.src) ) {
-                if (mov.type == ASM::Type::LongWord) {
+            if (should_fix_imm(mov.src)) {
+                if (std::holds_alternative<ASM::LongWord>(mov.type)) {
                     std::get<ASM::Imm>(mov.src).value &= 0xffffffff; // truncate to 32-bit
                 } else if (is_memory_address(mov.dst)) {
                     output.emplace_back(ASM::Mov{mov.type, mov.src, ASM::Reg(ASM::Reg::Name::R10)});
@@ -1008,21 +1202,23 @@ namespace codegen {
         }
 
         bool should_fix_imm(ASM::Operand &operand) {
-            return std::holds_alternative<ASM::Imm>(operand) && std::get<ASM::Imm>(operand).value > std::numeric_limits<int>::max();
+            return std::holds_alternative<ASM::Imm>(operand) && std::get<ASM::Imm>(operand).value > std::numeric_limits<
+                       int>::max();
         }
 
         void fix_binary(ASM::Binary &binary, std::vector<ASM::Instruction> &output) {
             // mess!!!!
             // does this even work!
-            if (binary.type == ASM::Type::Double) {
-                if (binary.op == ASM::Binary::Operator::ADD || binary.op == ASM::Binary::Operator::SUB || binary.op == ASM::Binary::Operator::MULT || binary.op == ASM::Binary::Operator::DIV_DOUBLE || binary.op == ASM::Binary::Operator::XOR) {
+            if (std::holds_alternative<ASM::Double>(binary.type)) {
+                if (binary.op == ASM::Binary::Operator::ADD || binary.op == ASM::Binary::Operator::SUB || binary.op ==
+                    ASM::Binary::Operator::MULT || binary.op == ASM::Binary::Operator::DIV_DOUBLE || binary.op ==
+                    ASM::Binary::Operator::XOR) {
                     if (!std::holds_alternative<ASM::Reg>(binary.right)) {
-
                         auto destination = binary.right;
                         binary.right = ASM::Reg(ASM::Reg::Name::XMM15);
-                        output.emplace_back(ASM::Mov(ASM::Type::Double, destination, ASM::Reg(ASM::Reg::Name::XMM15)));
+                        output.emplace_back(ASM::Mov(ASM::Double(), destination, ASM::Reg(ASM::Reg::Name::XMM15)));
                         output.emplace_back(binary);
-                        output.emplace_back(ASM::Mov(ASM::Type::Double, ASM::Reg(ASM::Reg::Name::XMM15), destination));
+                        output.emplace_back(ASM::Mov(ASM::Double(), ASM::Reg(ASM::Reg::Name::XMM15), destination));
                     } else {
                         output.emplace_back(binary);
                     }
@@ -1030,8 +1226,9 @@ namespace codegen {
                     std::abort();
                 }
             } else {
-                if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL || binary.op == ASM::Binary::Operator::SAR) &&
-                is_memory_address(binary.right)) {
+                if ((binary.op == ASM::Binary::Operator::SHR || binary.op == ASM::Binary::Operator::SHL || binary.op ==
+                     ASM::Binary::Operator::SAR) &&
+                    is_memory_address(binary.right)) {
                     output.emplace_back(ASM::Mov{binary.type, binary.left, ASM::Reg(ASM::Reg::Name::CX)});
                     binary.left = ASM::Reg(ASM::Reg::Name::CX);
                     output.emplace_back(binary);
@@ -1046,16 +1243,14 @@ namespace codegen {
                         ASM::Binary(binary.op, binary.type, binary.left, ASM::Reg(ASM::Reg::Name::R11)));
                     output.emplace_back(ASM::Mov{binary.type, ASM::Reg(ASM::Reg::Name::R11), binary.right});
                 } else if ((is_memory_address(binary.left) && is_memory_address(
-                               binary.right)) || should_fix_imm(binary.left)) {
+                                binary.right)) || should_fix_imm(binary.left)) {
                     output.emplace_back(ASM::Mov{binary.type, binary.left, ASM::Reg(ASM::Reg::Name::R10)});
                     binary.left = ASM::Reg(ASM::Reg::Name::R10);
                     output.emplace_back(binary);
-                               } else {
-                                   output.emplace_back(binary);
-                               }
+                } else {
+                    output.emplace_back(binary);
+                }
             }
-
-
         }
 
         void fix_idiv(ASM::Idiv &idiv, std::vector<ASM::Instruction> &output) {
@@ -1066,7 +1261,7 @@ namespace codegen {
             output.emplace_back(idiv);
         }
 
-        void fix_div(ASM::Div& div, std::vector<ASM::Instruction> &output) {
+        void fix_div(ASM::Div &div, std::vector<ASM::Instruction> &output) {
             if (std::holds_alternative<ASM::Imm>(div.divisor)) {
                 output.emplace_back(ASM::Mov{div.type, div.divisor, ASM::Reg(ASM::Reg::Name::R10)});
                 div.divisor = ASM::Reg(ASM::Reg::Name::R10);
@@ -1075,11 +1270,11 @@ namespace codegen {
         }
 
         void fix_cmp(ASM::Cmp &cmp, std::vector<ASM::Instruction> &output) {
-            if (cmp.type == ASM::Type::Double) {
+            if (std::holds_alternative<ASM::Double>(cmp.type)) {
                 if (!std::holds_alternative<ASM::Reg>(cmp.right)) {
                     auto destination = cmp.right;
                     cmp.right = ASM::Reg(ASM::Reg::Name::XMM15);
-                    output.emplace_back(ASM::Mov(ASM::Type::Double, destination, ASM::Reg(ASM::Reg::Name::XMM15)));
+                    output.emplace_back(ASM::Mov(ASM::Double(), destination, ASM::Reg(ASM::Reg::Name::XMM15)));
                     output.emplace_back(cmp);
                 } else {
                     output.emplace_back(cmp);

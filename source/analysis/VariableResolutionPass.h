@@ -61,6 +61,8 @@ public:
 
     void resolve_function_declaration(AST::FunctionDecl &decl);
 
+    void resolve_initializer(AST::Initializer &init);
+
     void resolve_variable_decl(AST::VariableDecl &decl);
 
     std::vector<Error> errors;

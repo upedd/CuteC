@@ -65,8 +65,9 @@ public:
         with_indent([this, &decl] {
             println(std::format("name={},", decl.name));
             println("value=");
-            if (decl.expr) {
-                visit_expr(*decl.expr);
+            if (decl.init) {
+                println("init");
+                //visit_expr(*decl.expr);
             } else {
                 println("null");
             }
@@ -377,6 +378,21 @@ public:
         println(")");
     }
 
+    void subscript_expr(const SubscriptExpr & expr) {
+        println("SubscriptExpr(");
+        with_indent([this, &expr] {
+            println("expr=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.expr);
+            });
+            println("index=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.index);
+            });
+        });
+        println(")");
+    }
+
     void visit_expr(const Expr &expr) {
         std::visit(overloaded{
                        [this](const ConstantExpr &expr) {
@@ -411,6 +427,9 @@ public:
                         },
                         [this](const TemporaryExpr& expr) {
                             temporary_expr(expr);
+                        },
+                        [this](const SubscriptExpr& expr) {
+                            subscript_expr(expr);
                         },
                         [this](const CastExpr& expr) {}
                    }, expr);

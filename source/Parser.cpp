@@ -511,6 +511,14 @@ AST::ExprHandle Parser::expression(Precedence min_precedence) {
                     auto lhs = std::make_unique<AST::Expr>(AST::VariableExpr(var_expr.name));
                     auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::move(lhs), std::move(right)));
                     build.emplace_back(std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(left), std::move(binary))));
+                } else if (std::holds_alternative<AST::SubscriptExpr>(*left)) {
+                    auto address_of_expr = std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(left)));
+                    auto temp_var = make_temp_name();
+                    build.emplace_back(std::make_unique<AST::Expr>(AST::TemporaryExpr(temp_var, std::move(address_of_expr))));
+                    auto lvalue = std::make_unique<AST::Expr>(AST::DereferenceExpr(std::make_unique<AST::Expr>(AST::VariableExpr(temp_var))));
+                    auto lhs = std::make_unique<AST::Expr>(AST::DereferenceExpr(std::make_unique<AST::Expr>(AST::VariableExpr(temp_var))));
+                    auto binary = std::make_unique<AST::Expr>(AST::BinaryExpr(*op, std::move(lhs), std::move(right)));
+                    build.emplace_back(std::make_unique<AST::Expr>(AST::AssigmentExpr(std::move(lvalue), std::move(binary))));
                 }
                 left  = std::make_unique<AST::Expr>(AST::CompoundExpr(std::move(build)));
             } else {
@@ -705,6 +713,10 @@ AST::TypeHandle Parser::process_abstract_declarator(const AST::AbstractDeclarato
 
 AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
+        if (match(Token::Type::LEFT_PAREN)) {
+            return std::make_unique<AST::Expr>(
+                AST::FunctionCall(token.lexeme, arguments_list()));
+        }
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
     if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT || token.type == Token::Type::FLOATING_POINT_CONSTANT) {
@@ -750,24 +762,28 @@ AST::ExprHandle Parser::factor() {
     auto primary_expr = primary(token);
     if (primary_expr) {
         if (match(Token::Type::PLUS_PLUS)) {
-            return std::make_unique<AST::Expr>(
+            primary_expr = std::make_unique<AST::Expr>(
                 AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_INCREMENT, std::move(primary_expr)));
         }
         if (match(Token::Type::MINUS_MINUS)) {
-            return std::make_unique<AST::Expr>(
+            primary_expr = std::make_unique<AST::Expr>(
                 AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_DECREMENT, std::move(primary_expr)));
         }
-        // check if correct! prob not!
-        // overlap!
         if (match(Token::Type::LEFT_BRACKET)) {
-            auto expr = expression();
-            expect(Token::Type::RIGHT_BRACKET);
-            return std::make_unique<AST::Expr>(AST::SubscriptExpr(std::move(primary_expr), std::move(expr)));
+            do {
+                auto expr = expression();
+                expect(Token::Type::RIGHT_BRACKET);
+                primary_expr = std::make_unique<AST::Expr>(AST::SubscriptExpr(std::move(primary_expr), std::move(expr)));
+            } while (match(Token::Type::LEFT_BRACKET));
         }
-
-        if (std::holds_alternative<AST::VariableExpr>(*primary_expr) && match(Token::Type::LEFT_PAREN)) {
-            return std::make_unique<AST::Expr>(
-                AST::FunctionCall(std::get<AST::VariableExpr>(*primary_expr).name, arguments_list()));
+        // mess!
+        if (match(Token::Type::PLUS_PLUS)) {
+            primary_expr = std::make_unique<AST::Expr>(
+                AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_INCREMENT, std::move(primary_expr)));
+        }
+        if (match(Token::Type::MINUS_MINUS)) {
+            primary_expr = std::make_unique<AST::Expr>(
+                AST::UnaryExpr(AST::UnaryExpr::Kind::POSTFIX_DECREMENT, std::move(primary_expr)));
         }
         return primary_expr;
     }

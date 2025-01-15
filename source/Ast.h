@@ -57,10 +57,12 @@ namespace AST {
     using InitializerHandle = std::unique_ptr<Initializer>;
     struct ScalarInit {
         ExprHandle value;
+        TypeHandle type;
     };
 
     struct CompoundInit {
         std::vector<InitializerHandle> init;
+        TypeHandle type;
     };
 
     struct Identifier {

@@ -66,37 +66,42 @@ public:
         }
     }
 
-    static std::uint64_t get_initial_value(const Initial& initial) {
-        return std::visit(overloaded {
-            [](const auto& init) -> std::uint64_t {
-                return init.value;
-            }
-        }, initial);
-    }
-
     std::string type_suffix(ASM::Type type) {
-        switch (type) {
-            case ASM::Type::LongWord:
+        return std::visit(overloaded {
+            [](const ASM::LongWord) {
                 return "l";
-            case ASM::Type::QuadWord:
+            },
+            [](const ASM::QuadWord) {
                 return "q";
-            case ASM::Type::Double:
+            },
+            [](const ASM::Double) {
                 return "sd";
-        }
+            },
+            [](const ASM::ByteArray) {
+                return "?"; //?
+            }
+        }, type);
     }
     int type_reg_size(ASM::Type type) {
-        switch (type) {
-            case ASM::Type::LongWord:
+        return std::visit(overloaded {
+            [](const ASM::LongWord) {
                 return 4;
-            case ASM::Type::QuadWord:
+            },
+            [](const ASM::QuadWord) {
                 return 8;
-            case ASM::Type::Double:
-                return 8; //?
-        }
+            },
+            [](const ASM::Double) {
+                return 8;
+            },
+            [](const ASM::ByteArray) {
+                return 0; //?
+            }
+        }, type);
     }
     // Note: this function actually check whether the binary representation of a number is all zeros
     // but does always return false for floating point values because there are two zero value 0.0 and -0.0
     bool is_initial_zero(const Initial & initial) {
+        if (initial.size() != 1) return false;
         return std::visit(overloaded {
             [](const InitialInt& init) {
                 return init.value == 0;
@@ -112,8 +117,11 @@ public:
             },
             [](const InitialDouble&) {
                 return false;
+            },
+            [](const InitialZero&) {
+                return true;
             }
-        }, initial);
+        }, initial[0]);
     }
 
     void emit_static_variable(const ASM::StaticVariable & variable) {
@@ -137,17 +145,21 @@ public:
         assembly += variable.name + ":\n";
 #endif
         if (is_initial_zero(variable.initial_value)) {
-            if (std::holds_alternative<InitialInt>(variable.initial_value) || std::holds_alternative<InitialUInt>(variable.initial_value)) {
+            if (std::holds_alternative<InitialZero>(variable.initial_value[0])) {
+                assembly += "    .zero " + std::to_string(std::get<InitialZero>(variable.initial_value[0]).bytes) + " \n";
+            } else if (std::holds_alternative<InitialInt>(variable.initial_value[0]) || std::holds_alternative<InitialUInt>(variable.initial_value[0])) {
                 assembly += "    .zero 4\n";
             } else {
                 assembly += "    .zero 8\n";
             }
         } else {
-            emit_init(variable.initial_value);
+            for (const auto& element : variable.initial_value) {
+                emit_init(element);
+            }
         }
     }
 
-    void emit_init(const Initial& initial_value) {
+    void emit_init(const InitialElement& initial_value) {
         std::visit(overloaded {
                 [this](const InitialInt& init) {
                     assembly += "    .long " + std::to_string(init.value) + "\n";
@@ -166,6 +178,9 @@ public:
                     std::uint64_t u;
                     std::memcpy(&u, &init.value, sizeof(init.value));
                     assembly += "    .quad " + std::to_string(u) + "\n";
+                },
+                [this](const InitialZero& init) {
+                    assembly += "    .zero " + std::to_string(init.bytes) + "\n";
                 }
             }, initial_value);
     }
@@ -192,7 +207,9 @@ public:
         assembly += "    .balign " + std::to_string(item.alignment) + "\n";
 #endif
         assembly += with_local_label(item.name) + ":\n";
-        emit_init(item.initial_value);
+        for (const auto& element : item.initial_value) {
+            emit_init(element);
+        }
 #if __APPLE__
         if (item.alignment == 16) {
             assembly += "    .quad 0\n";
@@ -356,7 +373,7 @@ public:
                 assembly += "    sub";
                 break;
             case ASM::Binary::Operator::MULT:
-                if (ins.type == ASM::Type::Double) {
+                if (std::holds_alternative<ASM::Double>(ins.type)) {
                     assembly += "    mul";
                 } else {
                     assembly += "    imul";
@@ -375,7 +392,7 @@ public:
                 assembly += "    and";
                 break;
             case ASM::Binary::Operator::XOR:
-                if (ins.type == ASM::Type::Double) {
+                if (std::holds_alternative<ASM::Double>(ins.type)) {
                     assembly += "    xorpd ";
                 } else {
                     assembly += "    xor";
@@ -388,7 +405,7 @@ public:
                 assembly += "    div";
                 break;
         }
-        if (ins.type != ASM::Type::Double || ins.op != ASM::Binary::Operator::XOR) { // do not emit type suffix for xor of doubles
+        if (!std::holds_alternative<ASM::Double>(ins.type) || ins.op != ASM::Binary::Operator::XOR) { // do not emit type suffix for xor of doubles
             assembly += type_suffix(ins.type) + " ";
         }
         if (ins.op == ASM::Binary::Operator::SHR || ins.op == ASM::Binary::Operator::SHL || ins.op == ASM::Binary::Operator::SAR) {
@@ -408,7 +425,7 @@ public:
     }
 
     void emit_cdq(const ASM::Cdq & ins) {
-        if (ins.type == ASM::Type::LongWord) {
+        if (std::holds_alternative<ASM::LongWord>(ins.type)) {
             assembly += "    cdq\n";
         } else {
             assembly += "    cqo\n";
@@ -416,7 +433,7 @@ public:
     }
 
     void emit_cmp(const ASM::Cmp &ins) {
-        if (ins.type == ASM::Type::Double) {
+        if (std::holds_alternative<ASM::Double>(ins.type)) {
             assembly += "    comisd ";
         } else {
             assembly += "    cmp" + type_suffix(ins.type) + " ";
@@ -548,6 +565,14 @@ public:
         }
     }
 
+    void emit_indexed(const ASM::Indexed & operand) {
+        assembly += "(";
+        emit_8byte_register(operand.base);
+        assembly += ", ";
+        emit_8byte_register(operand.index);
+        assembly += ", " + std::to_string(operand.scale) + ")";
+    }
+
     void emit_operand(const ASM::Operand &operand, int reg_size = 4) {
         std::visit(overloaded{
                        [this](const ASM::Imm &operand) {
@@ -570,6 +595,9 @@ public:
                        [this](const ASM::Data& operand) {
                            emit_data(operand);
                        },
+                       [this](const ASM::Indexed& operand) {
+                           emit_indexed(operand);
+                       } ,
                        [this](auto &) {
                            // TODO: panic
                        }
