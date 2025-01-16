@@ -125,10 +125,45 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::SIGNED);
     } else if (lexeme == "double") {
         make_token(Token::Type::DOUBLE);
+    } else if (lexeme == "char") {
+        make_token(Token::Type::CHAR);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }
 }
+
+bool is_valid_after_escape(char c) {
+    return c == '\'' || c == '"' || c == '?' || c == '\\' || c == 'a' || c == 'b' || c == 'f' || c == 'n' || c == 'r' || c == 't' || c == 'v';
+}
+
+void Lexer::make_char() {
+    if (match('\\')) {
+        if (!is_valid_after_escape(peek())) {
+            errors.emplace_back("Invalid character after in escape sequence");
+        }
+        consume();
+    }
+    if (!match('\'')) {
+        errors.emplace_back("Multi-character char constants are unsupported");
+    } // recover?
+    std::string lexeme = m_source.substr(m_start, m_pos - m_start);
+    tokens.emplace_back(Token::Type::CHAR_CONSTANT, Token::Position(m_line, m_linepos), lexeme);
+
+}
+
+void Lexer::make_string_literal() {
+    for (char c = consume(); c != '\"'; c = consume()) {
+        if (c == '\\') {
+            if (!is_valid_after_escape(peek())) {
+                errors.emplace_back("Invalid character after in escape sequence");
+            }
+            consume();
+        }
+    }
+    std::string lexeme = m_source.substr(m_start, m_pos - m_start);
+    tokens.emplace_back(Token::Type::STRING_LITERAL, Token::Position(m_line, m_linepos), lexeme);
+}
+
 
 void Lexer::lex() {
     while (true) {
@@ -281,6 +316,12 @@ void Lexer::lex() {
                 } else {
                     std::unreachable(); // TODO
                 }
+                break;
+            case '\'':
+                make_char();
+                break;
+            case '"':
+                make_string_literal();
                 break;
             default: {
                 if (is_digit(c)) {

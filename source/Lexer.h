@@ -21,6 +21,10 @@ public:
 
     void make_keyword_or_identifier();
 
+    void make_char();
+
+    void make_string_literal();
+
     void lex();
 
     std::vector<Token> tokens;

@@ -27,6 +27,26 @@ AST::Type Parser::parse_type(const std::vector<Token::Type>& types) {
         return AST::DoubleType {};
     }
 
+    // mess!
+    if (std::find(types.begin(), types.end(), Token::Type::CHAR) != types.end()) {
+        if (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end()) {
+            if (types.size() != 2) {
+                errors.emplace_back("Invalid type specifier");
+            }
+            return AST::UCharType {};
+        }
+        if (std::find(types.begin(), types.end(), Token::Type::SIGNED) != types.end()) {
+            if (types.size() != 2) {
+                errors.emplace_back("Invalid type specifier");
+            }
+            return AST::SignedCharType {};
+        }
+        if (types.size() != 1) {
+            errors.emplace_back("Invalid type specifier");
+        }
+        return AST::CharType {};
+    }
+
     // mess
     if (std::find(types.begin(), types.end(), Token::Type::DOUBLE) != types.end() ||types.empty() || !contains_only_unique_specifiers(types) || (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end() && std::find(types.begin(), types.end(), Token::Type::SIGNED) != types.end())) {
         errors.emplace_back("Invalid Type Specifier");
@@ -614,6 +634,35 @@ AST::BinaryExpr::Kind Parser::binary_operator() {
     }
 }
 
+char get_escape_sequence_value(char c) {
+    switch (c) {
+        case '\'':
+            return '\'';
+        case '"':
+            return '"';
+        case '?':
+            return '?';
+        case '\\':
+            return '\\';
+        case 'a':
+            return '\a';
+        case 'b':
+            return '\b';
+        case 'f':
+            return '\f';
+        case 'n':
+            return '\n';
+        case 'r':
+            return '\r';
+        case 't':
+            return '\t';
+        case '\v':
+            return '\v';
+        default:
+            std::unreachable();
+    }
+}
+
 AST::ExprHandle Parser::constant(const Token& token) {
     // mess
     std::string value = token.lexeme;
@@ -650,6 +699,11 @@ AST::ExprHandle Parser::constant(const Token& token) {
             errors.emplace_back("Constant too large!");
             // graceful errors?
         }
+    } else if (token.type == Token::Type::CHAR_CONSTANT) {
+        if (token.lexeme[1] == '\\') {
+            return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(get_escape_sequence_value(token.lexeme[2]))));
+        }
+        return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(token.lexeme[1])));
     } else {
         try {
             return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstInt(std::stoi(token.lexeme))));
@@ -711,6 +765,18 @@ AST::TypeHandle Parser::process_abstract_declarator(const AST::AbstractDeclarato
     }, declarator);
 }
 
+std::string parse_string_literal(const Token& token) {
+    // assert token.type == STRING_LITERAL
+    std::string result;
+    for (int i = 1; i < token.lexeme.size() - 1; ++i) { // skip quotes
+        if (token.lexeme[i] == '\\') {
+            result += get_escape_sequence_value(token.lexeme[i++]);
+        } else {
+            result += token.lexeme[i];
+        }
+    }
+}
+
 AST::ExprHandle Parser::primary(const Token &token) {
     if (token.type == Token::Type::IDENTIFIER) {
         if (match(Token::Type::LEFT_PAREN)) {
@@ -721,6 +787,14 @@ AST::ExprHandle Parser::primary(const Token &token) {
     }
     if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT || token.type == Token::Type::FLOATING_POINT_CONSTANT) {
         return constant(token);
+    }
+    if (token.type == Token::Type::STRING_LITERAL) {
+        std::string string = parse_string_literal(token);
+        while (peek().type == Token::Type::STRING_LITERAL) {
+            string += parse_string_literal(peek());
+            consume();
+        }
+        return std::make_unique<AST::Expr>(AST::StringExpr(string));
     }
     // TODO: correct?
     if (token.type == Token::Type::LEFT_PAREN) {

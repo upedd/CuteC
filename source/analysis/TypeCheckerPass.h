@@ -33,7 +33,15 @@ struct InitialZero {
     int bytes;
 };
 
-using InitialElement = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble, InitialZero>;
+struct InitialChar {
+    char value;
+};
+
+struct InitialUChar {
+    unsigned char value;
+};
+
+using InitialElement = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble, InitialZero, InitialChar, InitialUChar>;
 
 using Initial = std::vector<InitialElement>;
 
@@ -99,7 +107,7 @@ inline void convert_to(AST::ExprHandle& expr, const AST::TypeHandle& type) {
     expr = std::make_unique<AST::Expr>(std::move(cast));
 }
 
-inline int get_size_for_type(const AST::TypeHandle& type) {
+inline int get_size_for_type(const AST::Type& type) {
     return std::visit(overloaded {
         [](const AST::IntType&) {
             return 4;
@@ -122,7 +130,7 @@ inline int get_size_for_type(const AST::TypeHandle& type) {
         [](const auto&) {
             return 0; //?
         }
-    }, *type);
+    }, type);
 }
 
 
@@ -199,6 +207,8 @@ public:
     void check_subscript(AST::SubscriptExpr & expr);
 
     AST::InitializerHandle zero_initializer(const AST::Type &type);
+
+    void check_string(AST::StringExpr & expr);
 
     std::vector<Error> errors;
 

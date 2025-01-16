@@ -82,7 +82,10 @@ public:
         DOUBLE,
         FLOATING_POINT_CONSTANT,
         LEFT_BRACKET,
-        RIGHT_BRACKET
+        RIGHT_BRACKET,
+        CHAR,
+        CHAR_CONSTANT,
+        STRING_LITERAL
     };
 
     static std::string type_to_string(Type type) {
@@ -219,6 +222,12 @@ public:
                 return "LeftBracket";
             case Type::RIGHT_BRACKET:
                 return "RightBracket";
+            case Type::CHAR:
+                return "Char";
+            case Type::CHAR_CONSTANT:
+                return "CharConstant";
+            case Type::STRING_LITERAL:
+                return "StringLiteral";
         }
     }
 
