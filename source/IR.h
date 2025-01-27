@@ -26,8 +26,14 @@ namespace IR {
         AST::TypeHandle type;
     };
 
+    struct StaticConstant {
+        std::string name;
+        AST::TypeHandle type;
+        Initial initial;
+    };
+
     struct Program {
-        std::vector<std::variant<Function, StaticVariable>> items;
+        std::vector<std::variant<Function, StaticVariable, StaticConstant>> items;
     };
 
     struct Constant {

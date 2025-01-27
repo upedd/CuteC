@@ -8,7 +8,7 @@
 #include "analysis/TypeCheckerPass.h"
 
 static bool is_type_specifier(Token::Type type) {
-    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED || type == Token::Type::DOUBLE;
+    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED || type == Token::Type::DOUBLE || type == Token::Type::CHAR;
 }
 
 static bool is_specifier(Token::Type type) {
@@ -159,7 +159,7 @@ AST::DeclaratorHandle Parser::parse_direct_declarator() {
     }
     if (match(Token::Type::LEFT_BRACKET)) {
         do {
-            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT || peek().type == Token::Type::CHAR_CONSTANT) {
                 auto c = constant(consume()); // TODO: refactor and get constant directly
                 expect(Token::Type::RIGHT_BRACKET);
                 std::uint64_t value;
@@ -656,7 +656,7 @@ char get_escape_sequence_value(char c) {
             return '\r';
         case 't':
             return '\t';
-        case '\v':
+        case 'v':
             return '\v';
         default:
             std::unreachable();
@@ -730,7 +730,7 @@ AST::AbstractDeclaratorHandle Parser::parse_abstract_declarator() {
     // overlap!
     if (match(Token::Type::LEFT_BRACKET)) {
         do {
-            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT) {
+            if (peek().type == Token::Type::CONSTANT || peek().type == Token::Type::LONG_CONSTANT || peek().type == Token::Type::UNSIGNED_INT_CONSTANT || peek().type == Token::Type::UNSIGNED_LONG_CONSTANT || peek().type == Token::Type::CHAR_CONSTANT) {
                 auto c = constant(consume()); // TODO: refactor and get constant directly
                 expect(Token::Type::RIGHT_BRACKET);
                 std::uint64_t value;
@@ -770,11 +770,13 @@ std::string parse_string_literal(const Token& token) {
     std::string result;
     for (int i = 1; i < token.lexeme.size() - 1; ++i) { // skip quotes
         if (token.lexeme[i] == '\\') {
-            result += get_escape_sequence_value(token.lexeme[i++]);
+            result += get_escape_sequence_value(token.lexeme[++i]);
         } else {
             result += token.lexeme[i];
         }
     }
+
+    return result;
 }
 
 AST::ExprHandle Parser::primary(const Token &token) {
@@ -785,7 +787,7 @@ AST::ExprHandle Parser::primary(const Token &token) {
         }
         return std::make_unique<AST::Expr>(AST::VariableExpr(token.lexeme));
     }
-    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT || token.type == Token::Type::FLOATING_POINT_CONSTANT) {
+    if (token.type == Token::Type::CONSTANT || token.type == Token::Type::LONG_CONSTANT || token.type == Token::Type::UNSIGNED_INT_CONSTANT || token.type == Token::Type::UNSIGNED_LONG_CONSTANT || token.type == Token::Type::FLOATING_POINT_CONSTANT || token.type == Token::Type::CHAR_CONSTANT) {
         return constant(token);
     }
     if (token.type == Token::Type::STRING_LITERAL) {

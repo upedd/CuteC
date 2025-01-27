@@ -393,6 +393,17 @@ public:
         println(")");
     }
 
+    void string_expr(const AST::StringExpr & expr) {
+        println("StringExpr(");
+        with_indent([this, &expr] {
+            println("expr=");
+            with_indent([this, &expr] {
+                println(expr.string);
+            });
+        });
+        println(")");
+    }
+
     void visit_expr(const Expr &expr) {
         std::visit(overloaded{
                        [this](const ConstantExpr &expr) {
@@ -425,6 +436,9 @@ public:
                         [this](const CompoundExpr& expr) {
                             compound_expr(expr);
                         },
+                            [this](const StringExpr& expr) {
+                                string_expr(expr);
+                            },
                         [this](const TemporaryExpr& expr) {
                             temporary_expr(expr);
                         },

@@ -69,6 +69,9 @@ public:
                     },
                     [](const NoInitializer&) {}
                 }, attributes.initial_value);
+            } else if (std::holds_alternative<ConstantAttributes>(symbol.attributes)) {
+                auto& attributes = std::get<ConstantAttributes>(symbol.attributes);
+                IRProgram.items.emplace_back(IR::StaticConstant(name, *symbol.type, attributes.init));
             }
         }
     }
@@ -186,8 +189,20 @@ public:
     void gen_compound(std::vector<IR::Instruction>& instructions, const std::string& target, const AST::CompoundInit& compound, int offset) {
         for (const auto& element : compound.init) {
             if (std::holds_alternative<AST::ScalarInit>(*element)) {
-                auto value = gen_expr_and_convert(*std::get<AST::ScalarInit>(*element).value, instructions);
-                instructions.emplace_back(IR::CopyToOffset(value, target, offset));
+                auto& scalar = std::get<AST::ScalarInit>(*element);
+                if (std::holds_alternative<AST::StringExpr>(*scalar.value)) { // type checker hopefully already checked that target type is good?
+                    // TODO copy entire words as an optimization
+                    auto& string = std::get<AST::StringExpr>(*scalar.value).string;
+                    for (int i = 0; i < string.size(); ++i) {
+                        instructions.emplace_back(IR::CopyToOffset(IR::Value(IR::Constant(AST::ConstChar(string[i]))), target, offset + i));
+                    }
+                    auto buffer_size = std::get<AST::ArrayType>(*scalar.type).size;
+                    for (int i = string.size(); i < buffer_size; ++i) {
+                        instructions.emplace_back(IR::CopyToOffset(IR::Value(IR::Constant(AST::ConstChar(0))), target, offset + i));
+                    }
+                } else {
+                    instructions.emplace_back(IR::CopyToOffset(gen_expr_and_convert(*scalar.value, instructions), target, offset));
+                }
                 offset += bytes_for_type(*std::get<AST::ScalarInit>(*element).type);
             } else {
                 gen_compound(instructions, target, std::get<AST::CompoundInit>(*element), offset);
@@ -200,7 +215,20 @@ public:
         std::vector<IR::Instruction> instructions;
         if (decl.init && decl.storage_class != AST::StorageClass::STATIC) {
             if (std::holds_alternative<AST::ScalarInit>(*decl.init)) {
-                instructions.emplace_back(IR::Copy(gen_expr_and_convert(*std::get<AST::ScalarInit>(*decl.init).value, instructions), IR::Variable(decl.name)));
+                auto& scalar = std::get<AST::ScalarInit>(*decl.init);
+                if (std::holds_alternative<AST::StringExpr>(*scalar.value)) { // type checker hopefully already checked that target type is good?
+                    // TODO copy entire words as an optimization
+                    auto& string = std::get<AST::StringExpr>(*scalar.value).string;
+                    for (int i = 0; i < string.size(); ++i) {
+                        instructions.emplace_back(IR::CopyToOffset(IR::Value(IR::Constant(AST::ConstChar(string[i]))), decl.name, i));
+                    }
+                    auto buffer_size = std::get<AST::ArrayType>(*scalar.type).size;
+                    for (int i = string.size(); i < buffer_size; ++i) {
+                        instructions.emplace_back(IR::CopyToOffset(IR::Value(IR::Constant(AST::ConstChar(0))), decl.name, i));
+                    }
+                } else {
+                    instructions.emplace_back(IR::Copy(gen_expr_and_convert(*scalar.value, instructions), IR::Variable(decl.name)));
+                }
             } else { // compound
                 gen_compound(instructions, decl.name, std::get<AST::CompoundInit>(*decl.init), 0);
             }
@@ -372,34 +400,34 @@ public:
         auto destination = make_variable(expr.type);
 
         if (std::holds_alternative<AST::DoubleType>(*expr.target)) {
-            if (std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::LongType>(*type)) {
+            if (std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::LongType>(*type) || std::holds_alternative<AST::CharType>(*type) || std::holds_alternative<AST::SignedCharType>(*type)) {
                 instructions.emplace_back(IR::IntToDouble(res, destination));
                 return PlainOperand(destination);
             }
 
-            if (std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type)) {
+            if (std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<AST::ULongType>(*type) || std::holds_alternative<AST::UCharType>(*type)) {
                 instructions.emplace_back(IR::UIntToDouble(res, destination));
                 return PlainOperand(destination);
             }
         }
 
         if (std::holds_alternative<AST::DoubleType>(*type)) {
-            if (std::holds_alternative<AST::IntType>(*expr.type) || std::holds_alternative<AST::LongType>(*expr.type)) {
+            if (std::holds_alternative<AST::IntType>(*expr.type) || std::holds_alternative<AST::LongType>(*expr.type) || std::holds_alternative<AST::CharType>(*expr.type) || std::holds_alternative<AST::SignedCharType>(*expr.type)) {
                 instructions.emplace_back(IR::DoubleToInt(res, destination));
                 return PlainOperand(destination);
             }
 
-            if (std::holds_alternative<AST::UIntType>(*expr.type) || std::holds_alternative<AST::ULongType>(*expr.type)) {
+            if (std::holds_alternative<AST::UIntType>(*expr.type) || std::holds_alternative<AST::ULongType>(*expr.type) || std::holds_alternative<AST::UCharType>(*expr.type)) {
                 instructions.emplace_back(IR::DoubleToUInt(res, destination));
                 return PlainOperand(destination);
             }
         }
 
-        if (get_size_for_type(expr.target) == get_size_for_type(get_type(*expr.expr))) {
+        if (get_size_for_type(*expr.target) == get_size_for_type(*get_type(*expr.expr))) {
             instructions.emplace_back(IR::Copy(res, destination));
-        } else if (get_size_for_type(expr.target) < get_size_for_type(get_type(*expr.expr))) {
+        } else if (get_size_for_type(*expr.target) < get_size_for_type(*get_type(*expr.expr))) {
             instructions.emplace_back(IR::Truncate(res, destination));
-        } else if (std::holds_alternative<AST::IntType>(*get_type(*expr.expr)) || std::holds_alternative<AST::LongType>(*get_type(*expr.expr)) || std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))) {
+        } else if (std::holds_alternative<AST::IntType>(*get_type(*expr.expr)) || std::holds_alternative<AST::LongType>(*get_type(*expr.expr)) || std::holds_alternative<AST::PointerType>(*get_type(*expr.expr))  || std::holds_alternative<AST::CharType>(*get_type(*expr.expr)) || std::holds_alternative<AST::SignedCharType>(*get_type(*expr.expr))) {
             instructions.emplace_back(IR::SignExtend(res, destination));
         } else {
             instructions.emplace_back(IR::ZeroExtend(res, destination));
@@ -478,6 +506,12 @@ public:
         }
     }
 
+    ExprResult gen_string_expr(const AST::StringExpr & expr, std::vector<IR::Instruction> & instructions) {
+        auto identifier = make_temporary();
+        (*symbols)[identifier] = {{AST::ArrayType{{AST::CharType{}}, expr.string.size() + 1}}, ConstantAttributes{Initial{InitialString{expr.string, true}}}};
+        return PlainOperand(IR::Variable(identifier));
+    }
+
     ExprResult gen_expr(const AST::Expr &expr, std::vector<IR::Instruction> &instructions) {
         return std::visit(overloaded{
                               [this](const AST::ConstantExpr &expr) {
@@ -512,6 +546,9 @@ public:
                               },
                               [this, &instructions](const AST::SubscriptExpr& expr) {
                                   return gen_subscript_expr(expr, instructions);
+                              },
+                                [this, &instructions](const AST::StringExpr& expr) {
+                                  return gen_string_expr(expr, instructions);
                               },
                               [this, &instructions](const AST::CompoundExpr& expr) {
                                   return gen_compound_expr(expr, instructions);

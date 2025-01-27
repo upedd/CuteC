@@ -16,6 +16,10 @@ public:
                 ", initial_value=" << ")\n";
     }
 
+    void print_static_constant(const IR::StaticConstant & item) {
+        std::cout << "StaticConstant[" << item.name << "]\n"; // TODO
+    }
+
     void print() {
         for (const auto &item: program->items) {
             std::visit(overloaded{
@@ -24,7 +28,10 @@ public:
                            },
                            [this](const IR::StaticVariable &item) {
                                print_static_variable(item);
-                           }
+                           },
+                            [this](const IR::StaticConstant& item) {
+                                print_static_constant(item);
+                            }
                        }, item);
         }
     }

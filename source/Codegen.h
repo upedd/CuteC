@@ -33,8 +33,17 @@ namespace codegen {
                                   [](const AST::ULongType &) -> ASM::Type {
                                       return ASM::QuadWord();
                                   },
+                                    [](const AST::CharType&) -> ASM::Type {
+                                        return ASM::Byte();
+                                    },
+                                    [](const AST::UCharType&) -> ASM::Type {
+                                        return ASM::Byte();
+                                    },
+                                    [](const AST::SignedCharType&) -> ASM::Type {
+                                        return ASM::Byte();
+                                    },
                                   [](const AST::DoubleType &) -> ASM::Type {
-                                      return ASM::QuadWord();
+                                      return ASM::Double();
                                   },
                                   [](const AST::PointerType &) -> ASM::Type {
                                       return ASM::QuadWord();
@@ -66,6 +75,12 @@ namespace codegen {
                                                             },
                                                             [](const AST::ConstDouble &) -> ASM::Type {
                                                                 return ASM::Double();
+                                                            },
+                                                            [](const AST::ConstChar&) -> ASM::Type {
+                                                                return ASM::Byte();
+                                                            },
+                                                            [](const AST::ConstUChar&) -> ASM::Type {
+                                                                return ASM::Byte();
                                                             }
                                                         }, val.constant);
                                   },
@@ -79,12 +94,13 @@ namespace codegen {
             return std::visit(overloaded{
                                   [](const IR::Constant &val) {
                                       return std::holds_alternative<AST::ConstUInt>(val.constant) ||
-                                             std::holds_alternative<AST::ConstULong>(val.constant);
+                                             std::holds_alternative<AST::ConstULong>(val.constant) ||
+                                                 std::holds_alternative<AST::ConstUChar>(val.constant);
                                   },
                                   [this](const IR::Variable &val) {
                                       auto type = (*symbols)[val.name].type;
                                       return std::holds_alternative<AST::UIntType>(*type) || std::holds_alternative<
-                                                 AST::ULongType>(*type);
+                                                 AST::ULongType>(*type) || std::holds_alternative<AST::UCharType>(*type);
                                   }
                               }, value);
         }
@@ -101,6 +117,8 @@ namespace codegen {
                              }, value);
         }
 
+
+
         void convert() {
             for (const auto &item: IRProgram.items) {
                 std::visit(overloaded{
@@ -109,59 +127,91 @@ namespace codegen {
                                },
                                [this](const IR::StaticVariable &variable) {
                                    asmProgram.items.emplace_back(convert_static_variable(variable));
+                               },
+                               [this](const IR::StaticConstant &constant) {
+                                   asmProgram.items.emplace_back(convert_static_constant(constant));
                                }
                            }, item);
             }
 
             for (const auto &[name, symbol]: *symbols) {
+                bool is_constant = std::holds_alternative<ConstantAttributes>(symbol.attributes);
                 asmSymbols[name] = std::visit(overloaded{
-                                                  [&symbol](const AST::IntType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::IntType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::LongWord(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
-                                                  [&symbol](const AST::LongType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::LongType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::QuadWord(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
-                                                  [&symbol](const AST::ULongType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::ULongType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::QuadWord(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
-                                                  [&symbol](const AST::UIntType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::UIntType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::LongWord(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
-                                                  [&symbol](const AST::DoubleType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::DoubleType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::Double(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
+                    [&symbol, is_constant](const AST::CharType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::Byte(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
+                                                      };
+                                                  },
+                    [&symbol, is_constant](const AST::UCharType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::Byte(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
+                                                      };
+                                                  },
+                    [&symbol, is_constant](const AST::SignedCharType &) -> ASM::Symbol {
+                                                      return ASM::ObjectSymbol{
+                                                          ASM::Byte(),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
+                                                      };
+                                                  },
+
                                                   [&symbol](const AST::FunctionType &) -> ASM::Symbol {
                                                       return ASM::FunctionSymbol{
                                                           std::get<FunctionAttributes>(symbol.attributes).defined
                                                       };
                                                   },
-                                                  [&symbol](const AST::PointerType &) -> ASM::Symbol {
+                                                  [&symbol, is_constant](const AST::PointerType &) -> ASM::Symbol {
                                                       return ASM::ObjectSymbol{
                                                           ASM::QuadWord(),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
-                                          [&symbol](const AST::ArrayType& type) -> ASM::Symbol {
+                                          [&symbol, is_constant, this](const AST::ArrayType& type) -> ASM::Symbol {
                                                       auto size = bytes_for_type(*type.element_type) * type.size;
-                                                      std::uint64_t alignment = size < 16ull ? bytes_for_type(*type.element_type) : 16ull;
                                                       return ASM::ObjectSymbol{
-                                                          ASM::ByteArray(size, alignment),
-                                                          std::holds_alternative<StaticAttributes>(symbol.attributes)
+                                                          ASM::ByteArray(size, get_alignment_for_type(*symbol.type)),
+                                                          std::holds_alternative<StaticAttributes>(symbol.attributes) || is_constant,
+                                                          is_constant
                                                       };
                                                   },
                                                   [](const auto &) -> ASM::Symbol {
@@ -171,35 +221,85 @@ namespace codegen {
             }
         }
 
+        int get_alignment_for_type(const AST::Type &type) {
+            return std::visit(overloaded {
+                [](const AST::IntType&) {
+                    return 4;
+                },
+                [](const AST::LongType&) {
+                    return 8;
+                },
+                [](const AST::ULongType&) {
+                    return 8;
+                },
+                [](const AST::UIntType&) {
+                    return 4;
+                },
+                [](const AST::DoubleType&) {
+                    return 8;
+                },
+                [](const AST::CharType&) {
+                    return 1;
+                },
+                [](const AST::UCharType&) {
+                    return 1;
+                },
+                [](const AST::SignedCharType&) {
+                    return 1;
+                },
+                [](const AST::PointerType&) {
+                    return 8;
+                },
+                [this](const AST::ArrayType& type) {
+                    auto size = bytes_for_type(*type.element_type) * type.size;
+                     return size < 16ull ? get_alignment_for_type(*type.element_type) : 16;
+                },
+                [](const auto&) -> int {
+                    std::unreachable();
+                }
+            }, type);
+        }
+
         ASM::StaticVariable convert_static_variable(const IR::StaticVariable &variable) {
             return std::visit(overloaded{
-                                  [&variable](const AST::IntType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 4, variable.initial};
+                                  [&variable, this](const AST::IntType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                  [&variable](const AST::LongType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 8, variable.initial};
+                                  [&variable, this](const AST::LongType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                  [&variable](const AST::ULongType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 8, variable.initial};
+                                  [&variable, this](const AST::ULongType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                  [&variable](const AST::UIntType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 4, variable.initial};
+                                  [&variable, this](const AST::UIntType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                  [&variable](const AST::DoubleType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 8, variable.initial};
+                                  [&variable, this](const AST::DoubleType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                  [&variable](const AST::PointerType &) -> ASM::StaticVariable {
-                                      return {variable.name, variable.global, 8, variable.initial};
+                [&variable, this](const AST::CharType &) -> ASM::StaticVariable {
+                  return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
+              },
+                [&variable, this](const AST::UCharType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                   },
-                                    [&variable](const AST::ArrayType & type) -> ASM::StaticVariable {
-                                        auto size = bytes_for_type(*type.element_type) * type.size;
-                                        std::uint64_t alignment = size < 16ull ? bytes_for_type(*type.element_type) : 16ull;
-                                        return {variable.name, variable.global, static_cast<int>(alignment), variable.initial};
+                [&variable, this](const AST::SignedCharType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
+                                  },
+                                  [&variable, this](const AST::PointerType &) -> ASM::StaticVariable {
+                                      return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
+                                  },
+                                    [&variable, this](const AST::ArrayType & type) -> ASM::StaticVariable {
+                                        return {variable.name, variable.global, get_alignment_for_type(*variable.type), variable.initial};
                                     },
                                   [](const auto &) -> ASM::StaticVariable {
                                       std::unreachable();
                                   }
                               }, *variable.type);
+        }
+
+        ASM::StaticConstant convert_static_constant(const IR::StaticConstant & constant) {
+            return ASM::StaticConstant{constant.name, bytes_for_type(*constant.type), constant.initial};
         }
 
 
@@ -336,30 +436,41 @@ namespace codegen {
         }
 
         void convert_sign_extend(const IR::SignExtend &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::Movsx(convert_value(instruction.source),
+            instructions.emplace_back(ASM::Movsx(get_type_for_value(instruction.source), get_type_for_value(instruction.destination), convert_value(instruction.source),
                                                  convert_value(instruction.destination)));
         }
 
         void convert_trunctate(const IR::Truncate &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::Mov(ASM::LongWord(), convert_value(instruction.source),
+            instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.destination), convert_value(instruction.source),
                                                convert_value(instruction.destination)));
         }
 
         void convert_zero_extend(const IR::ZeroExtend &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::MovZeroExtend(convert_value(instruction.source),
+            instructions.emplace_back(ASM::MovZeroExtend(get_type_for_value(instruction.source), get_type_for_value(instruction.destination), convert_value(instruction.source),
                                                          convert_value(instruction.destination)));
         }
 
         void convert_double_to_int(const IR::DoubleToInt &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::Cvttsd2si(get_type_for_value(instruction.destination),
+            if (std::holds_alternative<ASM::Byte>(get_type_for_value(instruction.destination))) {
+                instructions.emplace_back(ASM::Cvttsd2si(ASM::LongWord(), convert_value(instruction.source),
+                                                         ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Mov(ASM::Byte(), ASM::Reg(ASM::Reg::Name::AX),
+                                                   convert_value(instruction.destination)));
+            } else {
+                instructions.emplace_back(ASM::Cvttsd2si(get_type_for_value(instruction.destination),
                                                      convert_value(instruction.source),
                                                      convert_value(instruction.destination)));
+            }
         }
 
         void convert_double_to_uint(const IR::DoubleToUInt &instruction, std::vector<ASM::Instruction> &instructions) {
             // no asm instruction for this conversion!
-
-            if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.destination))) {
+            if (std::holds_alternative<ASM::Byte>(get_type_for_value(instruction.destination))) {
+                instructions.emplace_back(ASM::Cvttsd2si(ASM::LongWord(), convert_value(instruction.source),
+                                                         ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Mov(ASM::Byte(), ASM::Reg(ASM::Reg::Name::AX),
+                                                   convert_value(instruction.destination)));
+            } else if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.destination))) {
                 // when converting to unsigned int we can emit conversion to unsigned long and truncate the result
                 instructions.emplace_back(ASM::Cvttsd2si(ASM::QuadWord(), convert_value(instruction.source),
                                                          ASM::Reg(ASM::Reg::Name::AX)));
@@ -412,19 +523,34 @@ namespace codegen {
         }
 
         void convert_int_to_double(const IR::IntToDouble &instruction, std::vector<ASM::Instruction> &instructions) {
-            instructions.emplace_back(ASM::Cvtsi2sd(get_type_for_value(instruction.source),
+
+            if (std::holds_alternative<ASM::Byte>(get_type_for_value(instruction.source))) {
+                instructions.emplace_back(
+                    ASM::Movsx(ASM::Byte(), ASM::LongWord(), convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Cvtsi2sd(ASM::LongWord(), ASM::Reg(ASM::Reg::Name::AX),
+                                                        convert_value(instruction.destination)));
+            } else {
+                instructions.emplace_back(ASM::Cvtsi2sd(get_type_for_value(instruction.source),
                                                     convert_value(instruction.source),
                                                     convert_value(instruction.destination)));
+            }
+
         }
 
 
         void convert_uint_to_double(const IR::UIntToDouble &instruction, std::vector<ASM::Instruction> &instructions) {
             // no asm instruction for this conversion
 
-            // when converting an unsigned integer we can zero extend it and emit conversion from signed long to double
-            if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.source))) {
+            if (std::holds_alternative<ASM::Byte>(get_type_for_value(instruction.source))) {
                 instructions.emplace_back(
-                    ASM::MovZeroExtend(convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
+                    ASM::MovZeroExtend(ASM::Byte(), ASM::LongWord(), convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
+                instructions.emplace_back(ASM::Cvtsi2sd(ASM::LongWord(), ASM::Reg(ASM::Reg::Name::AX),
+                                                        convert_value(instruction.destination)));
+            } else if (std::holds_alternative<ASM::LongWord>(get_type_for_value(instruction.source))) {
+                // when converting an unsigned integer we can zero extend it and emit conversion from signed long to double
+
+                instructions.emplace_back(
+                    ASM::MovZeroExtend(ASM::LongWord(), ASM::QuadWord(), convert_value(instruction.source), ASM::Reg(ASM::Reg::Name::AX)));
                 instructions.emplace_back(ASM::Cvtsi2sd(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::AX),
                                                         convert_value(instruction.destination)));
             } else {
@@ -990,7 +1116,9 @@ namespace codegen {
                     m_offsets[name] = offset;
                     // why we only round down in case of 8 bytes and above?
                     auto& type = std::get<ASM::ObjectSymbol>((*symbols)[name]).type;
-                    if (std::holds_alternative<ASM::LongWord>(type)) {
+                    if (std::holds_alternative<ASM::Byte>(type)) {
+                        offset -= 1;
+                    } else if (std::holds_alternative<ASM::LongWord>(type)) {
                         offset -= 4;
                     } else {
                         if (std::holds_alternative<ASM::ByteArray>(type)) {
@@ -1042,13 +1170,13 @@ namespace codegen {
             if (std::holds_alternative<ASM::Imm>(mov.source)) {
                 auto source = mov.source;
                 mov.source = ASM::Reg(ASM::Reg::Name::R10);
-                output.emplace_back(ASM::Mov(ASM::LongWord(), source, mov.source));
+                output.emplace_back(ASM::Mov(mov.source_type, source, mov.source));
             }
             if (is_memory_address(mov.destination)) {
                 auto destination = mov.destination;
                 mov.destination = ASM::Reg(ASM::Reg::Name::R11);
                 output.emplace_back(mov);
-                output.emplace_back(ASM::Mov(ASM::QuadWord(), mov.destination, destination));
+                output.emplace_back(ASM::Mov(mov.destination_type, mov.destination, destination));
             } else {
                 output.emplace_back(mov);
             }
@@ -1088,12 +1216,29 @@ namespace codegen {
             }
         }
 
-        void fix_mov_zero_extend(const ASM::MovZeroExtend &mov, std::vector<ASM::Instruction> &output) {
-            if (std::holds_alternative<ASM::Reg>(mov.destination)) {
-                output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, mov.destination));
-            } else if (is_memory_address(mov.destination)) {
-                output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, ASM::Reg(ASM::Reg::Name::R11)));
-                output.emplace_back(ASM::Mov(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::R11), mov.destination));
+        void fix_mov_zero_extend(ASM::MovZeroExtend &mov, std::vector<ASM::Instruction> &output) {
+            if (std::holds_alternative<ASM::Byte>(mov.source_type)) {
+                if (std::holds_alternative<ASM::Imm>(mov.source)) {
+                    std::get<ASM::Imm>(mov.source).value &= 0xff; // truncate to 1 byte
+                    output.emplace_back(ASM::Mov(ASM::Byte(), mov.source, ASM::Reg(ASM::Reg::Name::R10)));
+                    mov.source = ASM::Reg(ASM::Reg::Name::R10);
+                }
+
+                if (!std::holds_alternative<ASM::Reg>(mov.destination)) {
+                    auto dest = mov.destination;
+                    mov.destination = ASM::Reg(ASM::Reg::Name::R11);
+                    output.emplace_back(mov);
+                    output.emplace_back(ASM::Mov(mov.destination_type, ASM::Reg(ASM::Reg::Name::R11), dest));
+                } else {
+                    output.emplace_back(mov);
+                }
+            } else {
+                if (std::holds_alternative<ASM::Reg>(mov.destination)) {
+                    output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, mov.destination));
+                } else if (is_memory_address(mov.destination)) {
+                    output.emplace_back(ASM::Mov(ASM::LongWord(), mov.source, ASM::Reg(ASM::Reg::Name::R11)));
+                    output.emplace_back(ASM::Mov(ASM::QuadWord(), ASM::Reg(ASM::Reg::Name::R11), mov.destination));
+                }
             }
         }
 

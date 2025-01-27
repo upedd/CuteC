@@ -90,6 +90,40 @@ void TypeCheckerPass::check_block(std::vector<AST::BlockItem> &block) {
 
 Initial TypeCheckerPass::convert_scalar_to_initial(const AST::Type &target_type, AST::ScalarInit &init) {
     auto &expr = *init.value;
+
+    if (std::holds_alternative<AST::StringExpr>(expr)) {
+        auto &string = std::get<AST::StringExpr>(expr);
+        if (std::holds_alternative<AST::ArrayType>(target_type)) {
+            auto& arr_type = std::get<AST::ArrayType>(target_type);
+            if (!is_character_type(*arr_type.element_type)) {
+                errors.emplace_back("Cannot initialize a non character type with a string literal");
+            }
+            if (arr_type.size < string.string.size()) {
+                errors.emplace_back("Too many character in a string literal");
+            }
+            Initial initial {InitialString(string.string, string.string.size() < arr_type.size)};
+            int padding = static_cast<int>(arr_type.size) - static_cast<int>(string.string.size()) - 1;
+            if (padding > 0) {
+                initial.emplace_back(InitialZero(padding));
+            }
+            return initial;
+        }
+        if (std::holds_alternative<AST::PointerType>(target_type)) {
+            auto& ptr_type = std::get<AST::PointerType>(target_type);
+            if (!std::holds_alternative<AST::CharType>(*ptr_type.referenced_type)) {
+                errors.emplace_back("Cannot initialize a non character type pointer with a string literal");
+            }
+
+            std::string constant = "string.constant." + (cnt++);
+            symbols[constant] = Symbol {{AST::ArrayType{{AST::CharType{}}, string.string.size() + 1}}, ConstantAttributes{Initial {InitialString{string.string, true} }}};
+
+            return {InitialPointer{constant}};
+        }
+
+        errors.emplace_back("Invalid target type for string literal initializer");
+        return {};
+    }
+
     if (!std::holds_alternative<AST::ConstantExpr>(expr)) {
         errors.emplace_back("Non-constant initializer");
         return {};
@@ -190,7 +224,7 @@ void TypeCheckerPass::convert_compound_to_initial(Initial &initial, const AST::T
             convert_compound_to_initial(initial, *arr_type.element_type, std::get<AST::CompoundInit>(*element));
         } else {
             auto init = convert_scalar_to_initial(*arr_type.element_type, std::get<AST::ScalarInit>(*element));
-            initial.emplace_back(init[0]); // mess!
+            initial.insert(initial.end(), init.begin(), init.end()); // mess!
         }
     }
     int number_of_missing_elements = arr_type.size - compound.init.size();
@@ -337,15 +371,25 @@ AST::InitializerHandle TypeCheckerPass::zero_initializer(const AST::Type &type) 
 }
 
 void TypeCheckerPass::check_string(AST::StringExpr &expr) {
-    expr.type = {AST::ArrayType {AST::CharType(), expr.string.size() + 1}};
+    expr.type = {AST::ArrayType {{AST::CharType()}, expr.string.size() + 1}};
 }
 
 
 void TypeCheckerPass::check_init(const AST::TypeHandle &target_type, AST::Initializer &init) {
     std::visit(overloaded{
                    [this, &target_type](AST::ScalarInit &scalar) {
-                       check_expr_and_convert(scalar.value);
-                       convert_by_assigment(scalar.value, target_type);
+                       if (std::holds_alternative<AST::StringExpr>(*scalar.value) && std::holds_alternative<AST::ArrayType>(*target_type)) {
+                           auto& arr_type = std::get<AST::ArrayType>(*target_type);
+                           if (!is_character_type(*arr_type.element_type)) {
+                                errors.emplace_back("Cannot initialize a non-character type with a string literal");
+                           }
+                           if (arr_type.size < std::get<AST::StringExpr>(*scalar.value).string.size()) {
+                               errors.emplace_back("Too many characters in string literal");
+                           }
+                       } else {
+                           check_expr_and_convert(scalar.value);
+                           convert_by_assigment(scalar.value, target_type);
+                       }
                        scalar.type = target_type;
                    },
                    [this, &target_type](AST::CompoundInit &compound) {
@@ -596,6 +640,10 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                                AST::PointerType>(*get_type(*stmt.expr))) {
                            errors.emplace_back("Switch controlling value must be an integer");
                        }
+                       // promote switch controlling value
+                       if (is_character_type(*get_type(*stmt.expr))) {
+                           convert_to(stmt.expr, {AST::IntType()});
+                       }
                    },
                    [this](AST::CaseStmt &stmt) {
                        check_stmt(*stmt.stmt);
@@ -627,7 +675,13 @@ void TypeCheckerPass::check_constant_expr(AST::ConstantExpr &expr) {
                    },
                    [&expr](const AST::ConstDouble &) {
                        expr.type = AST::Type(AST::DoubleType());
-                   }
+                   },
+                    [&expr](const AST::ConstChar&) {
+                        expr.type = AST::Type(AST::CharType());
+                    },
+                    [&expr](const AST::ConstUChar &) {
+                        expr.type = AST::Type(AST::UCharType());
+                    }
                }, expr.constant);
 }
 
@@ -763,8 +817,15 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
     }
     if (expr.kind == AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) {
         auto lhs_type = get_type(*expr.left);
-        convert_to(expr.right, lhs_type);
-        expr.type = lhs_type;
+        AST::TypeHandle target_type;
+        if (is_character_type(*lhs_type)) {
+            target_type = {AST::IntType()};
+        } else {
+            target_type = lhs_type;
+        }
+        convert_to(expr.left, target_type);
+        convert_to(expr.right, target_type);
+        expr.type = target_type;
         return;
     }
 
@@ -824,19 +885,12 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
     errors.emplace_back("invalid operands to an binary expression");
 }
 
-
-bool is_type_arithmetic(const AST::TypeHandle &type) {
-    return std::holds_alternative<AST::IntType>(*type) || std::holds_alternative<AST::UIntType>(*type) ||
-           std::holds_alternative<AST::LongType>(*type) || std::holds_alternative<AST::ULongType>(*type) ||
-           std::holds_alternative<AST::DoubleType>(*type);
-}
-
 void TypeCheckerPass::convert_by_assigment(AST::ExprHandle &expr, AST::TypeHandle target) {
     auto expr_type = get_type(*expr);
     if (types_match(*target,* expr_type)) {
         return;
     }
-    if (is_type_arithmetic(target) && is_type_arithmetic(expr_type)) {
+    if (is_type_arithmetic(*target) && is_type_arithmetic(*expr_type)) {
         convert_to(expr, target);
         return;
     }

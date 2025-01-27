@@ -228,6 +228,14 @@ public:
                 return "CharConstant";
             case Type::STRING_LITERAL:
                 return "StringLiteral";
+            case Type::PLUS:
+                return "Plus";
+            case Type::ASTERISK:
+                return "Asterisk";
+            case Type::FORWARD_SLASH:
+                return "ForwardSlash";
+            case Type::PERCENT:
+                return "Percent";
         }
     }
 

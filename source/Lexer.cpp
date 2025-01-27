@@ -141,8 +141,10 @@ void Lexer::make_char() {
         if (!is_valid_after_escape(peek())) {
             errors.emplace_back("Invalid character after in escape sequence");
         }
-        consume();
+    } else if (match('\n') || match('\'')) {
+        errors.emplace_back("Invalid character in char constant");
     }
+    consume(); //?
     if (!match('\'')) {
         errors.emplace_back("Multi-character char constants are unsupported");
     } // recover?
@@ -152,13 +154,19 @@ void Lexer::make_char() {
 }
 
 void Lexer::make_string_literal() {
-    for (char c = consume(); c != '\"'; c = consume()) {
+    char c;
+    for (c = consume(); c != '\"' && c != '\0'; c = consume()) {
         if (c == '\\') {
             if (!is_valid_after_escape(peek())) {
                 errors.emplace_back("Invalid character after in escape sequence");
             }
             consume();
+        } else if (c == '\n') {
+            errors.emplace_back("Invalid character in string constant");
         }
+    }
+    if (c != '\"') {
+        errors.emplace_back("Unterminated string literal");
     }
     std::string lexeme = m_source.substr(m_start, m_pos - m_start);
     tokens.emplace_back(Token::Type::STRING_LITERAL, Token::Position(m_line, m_linepos), lexeme);

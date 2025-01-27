@@ -1,6 +1,8 @@
 #ifndef TYPECHECKERPASS_H
 #define TYPECHECKERPASS_H
 
+#include <array>
+#include <array>
 #include <cstdint>
 #include <iostream>
 #include <utility>
@@ -41,7 +43,16 @@ struct InitialUChar {
     unsigned char value;
 };
 
-using InitialElement = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble, InitialZero, InitialChar, InitialUChar>;
+struct InitialString {
+    std::string value;
+    bool null_terminated;
+};
+
+struct InitialPointer {
+    std::string name;
+};
+
+using InitialElement = std::variant<InitialInt, InitialLong, InitialUInt, InitialULong, InitialDouble, InitialZero, InitialChar, InitialUChar, InitialString, InitialPointer>;
 
 using Initial = std::vector<InitialElement>;
 
@@ -60,9 +71,13 @@ struct StaticAttributes {
     bool global;
 };
 
+struct ConstantAttributes {
+    Initial init;
+};
+
 struct LocalAttributes {};
 
-using IdentifierAttributes = std::variant<FunctionAttributes, StaticAttributes, LocalAttributes>;
+using IdentifierAttributes = std::variant<FunctionAttributes, StaticAttributes, ConstantAttributes, LocalAttributes>;
 inline AST::TypeHandle get_type(const AST::Expr &expr) {
     return std::visit(overloaded {
         [](const auto& expr) {
@@ -90,6 +105,15 @@ inline int bytes_for_type(const AST::Type& type) {
         },
         [](const AST::DoubleType&) {
             return 8;
+        },
+        [](const AST::CharType&) {
+            return 1;
+        },
+        [](const AST::UCharType&) {
+            return 1;
+        },
+        [](const AST::SignedCharType&) {
+            return 1;
         },
         [](const AST::ArrayType& array) -> int {
             return bytes_for_type(*array.element_type) * array.size;
@@ -126,6 +150,15 @@ inline int get_size_for_type(const AST::Type& type) {
         },
         [](const AST::PointerType&) {
             return 8;
+        },
+        [](const AST::CharType&) {
+            return 1;
+        },
+        [](const AST::UCharType&) {
+            return 1;
+        },
+        [](const AST::SignedCharType&) {
+            return 1;
         },
         [](const auto&) {
             return 0; //?
@@ -215,6 +248,7 @@ public:
     std::unordered_map<std::string, Symbol> symbols;
 
 private:
+    int cnt = 0;
     std::vector<AST::TypeHandle> current_function_return_type;
     AST::Program *program;
 };

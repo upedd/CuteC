@@ -7,6 +7,7 @@
 #include "analysis/TypeCheckerPass.h"
 
 namespace ASM {
+    struct Byte {};
     struct LongWord {};
     struct QuadWord {};
     struct Double {};
@@ -14,7 +15,7 @@ namespace ASM {
         int size;
         int alignment;
     };
-    using Type = std::variant<LongWord, QuadWord, Double, ByteArray>;
+    using Type = std::variant<Byte, LongWord, QuadWord, Double, ByteArray>;
 
     struct ObjectSymbol {
         Type type;
@@ -216,11 +217,15 @@ namespace ASM {
     };
 
     struct Movsx {
+        Type source_type;
+        Type destination_type;
         Operand source;
         Operand destination;
     };
 
     struct MovZeroExtend {
+        Type source_type;
+        Type destination_type;
         Operand source;
         Operand destination;
     };

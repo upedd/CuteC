@@ -77,6 +77,9 @@ public:
             [](const ASM::Double) {
                 return "sd";
             },
+            [](const ASM::Byte) {
+                return "b";
+            },
             [](const ASM::ByteArray) {
                 return "?"; //?
             }
@@ -92,6 +95,9 @@ public:
             },
             [](const ASM::Double) {
                 return 8;
+            },
+            [](const ASM::Byte) {
+                return 1;
             },
             [](const ASM::ByteArray) {
                 return 0; //?
@@ -120,6 +126,18 @@ public:
             },
             [](const InitialZero&) {
                 return true;
+            },
+            [](const InitialChar& init) {
+                return init.value == 0;
+            },
+            [](const InitialUChar& init) {
+                return init.value == 0;
+            },
+            [](const InitialString&) {
+                return false; //?
+            },
+            [](const InitialPointer&) {
+                return false; //?
             }
         }, initial[0]);
     }
@@ -147,6 +165,8 @@ public:
         if (is_initial_zero(variable.initial_value)) {
             if (std::holds_alternative<InitialZero>(variable.initial_value[0])) {
                 assembly += "    .zero " + std::to_string(std::get<InitialZero>(variable.initial_value[0]).bytes) + " \n";
+            } else if (std::holds_alternative<InitialChar>(variable.initial_value[0]) || std::holds_alternative<InitialUChar>(variable.initial_value[0])) {
+                assembly += "    .zero 1\n";
             } else if (std::holds_alternative<InitialInt>(variable.initial_value[0]) || std::holds_alternative<InitialUInt>(variable.initial_value[0])) {
                 assembly += "    .zero 4\n";
             } else {
@@ -181,7 +201,37 @@ public:
                 },
                 [this](const InitialZero& init) {
                     assembly += "    .zero " + std::to_string(init.bytes) + "\n";
+                },
+                [this](const InitialChar& init) {
+                    assembly += "    .byte " + std::to_string(init.value) + "\n";
+                },
+            [this](const InitialUChar& init) {
+                    assembly += "    .byte " + std::to_string(init.value) + "\n";
+                },
+                [this](const InitialString& init) {
+                    if (init.null_terminated) {
+                        assembly += "    .asciz ";
+                    } else {
+                        assembly += "    .ascii ";
+                    }
+                    assembly += '\"';
+                    for (char c : init.value) {
+                        if (c == '\n') {
+                            assembly += "\\n";
+                        } else if (c == '\\') {
+                            assembly += "\\\\";
+                        } else if (c == '\"') {
+                            assembly += "\\\"";
+                        } else {
+                            assembly += c;
+                        }
+                    }
+                    assembly += "\"\n";
+                },
+                [this](const InitialPointer& init) {
+                    assembly += "    .quad " + with_local_label(init.name);
                 }
+
             }, initial_value);
     }
 
@@ -195,7 +245,9 @@ public:
 
     void emit_static_constant(const ASM::StaticConstant & item) {
 #ifdef __APPLE__
-        if (item.alignment == 8) {
+        if (std::holds_alternative<InitialString>(item.initial_value[0])) {
+            assembly += "    .cstring\n";
+        } else if (item.alignment == 8) {
             assembly += "    .literal8\n";
             assembly += "    .balign 8\n";
         } else { // must be 16
@@ -234,10 +286,10 @@ public:
     }
 
     void emit_movsx(const ASM::Movsx & ins) {
-        assembly += "    movslq ";
-        emit_operand(ins.source, 4);
+        assembly += "    movs" + type_suffix(ins.source_type) + type_suffix(ins.destination_type) + " ";
+        emit_operand(ins.source, type_reg_size(ins.source_type));
         assembly += ", ";
-        emit_operand(ins.destination, 8);
+        emit_operand(ins.destination, type_reg_size(ins.destination_type));
         assembly += "\n";
     }
 
@@ -268,6 +320,14 @@ public:
         emit_operand(ins.source, 8);
         assembly += ", ";
         emit_operand(ins.destination, 8);
+        assembly += "\n";
+    }
+
+    void emit_mov_zero_extend(const ASM::MovZeroExtend & ins) {
+        assembly += "    movz" + type_suffix(ins.source_type) + type_suffix(ins.destination_type) + " ";
+        emit_operand(ins.source, type_reg_size(ins.source_type));
+        assembly += ", ";
+        emit_operand(ins.destination, type_reg_size(ins.destination_type));
         assembly += "\n";
     }
 
@@ -328,6 +388,7 @@ public:
                 emit_lea(ins);
             },
              [this](const ASM::MovZeroExtend &ins) {
+                 emit_mov_zero_extend(ins);
              }
                    }, instruction);
     }
@@ -702,33 +763,36 @@ public:
         switch (operand.name) {
             case ASM::Reg::Name::AX:
                 assembly += "%al";
-                break;
+            break;
             case ASM::Reg::Name::DX:
                 assembly += "%dl";
-                break;
+            break;
             case ASM::Reg::Name::CX:
                 assembly += "%cl";
-                break;
+            break;
             case ASM::Reg::Name::DI:
                 assembly += "%dil";
-                break;
+            break;
             case ASM::Reg::Name::R8:
                 assembly += "%r8b";
-                break;
+            break;
             case ASM::Reg::Name::R9:
                 assembly += "%r9b";
-                break;
+            break;
             case ASM::Reg::Name::R10:
                 assembly += "%r10b";
-                break;
+            break;
             case ASM::Reg::Name::R11:
                 assembly += "%r11b";
-                break;
+            break;
             case ASM::Reg::Name::SP:
                 assembly += "%sp";
-                break;
+            break;
             case ASM::Reg::Name::BP:
                 assembly += "%bp";
+            break;
+            case ASM::Reg::Name::SI:
+                assembly += "%sil";
             break;
         }
     }
