@@ -21,23 +21,22 @@ void VariableResolutionPass::resolve_block(std::vector<AST::BlockItem> &block) {
 void VariableResolutionPass::resolve_program(AST::Program &program) {
     variables.emplace_back();
     for (auto &declaration: program.declarations) {
+        std::visit(overloaded{
+                       [this](AST::FunctionDecl &decl) {
+                           resolve_function_declaration(decl);
+                       },
+                       [this](AST::VariableDecl &decl) {
+                           resolve_file_scope_variable_declaration(decl);
+                       }
 
-        std::visit(overloaded {
-            [this](AST::FunctionDecl& decl) {
-                resolve_function_declaration(decl);
-            },
-            [this](AST::VariableDecl& decl) {
-                resolve_file_scope_variable_declaration(decl);
-            }
-
-        }, *declaration);
+                   }, *declaration);
         //resolve_function_declaration(function);
     }
     variables.pop_back();
 }
 
 
-void VariableResolutionPass::resolve_file_scope_variable_declaration(AST::VariableDecl& decl) {
+void VariableResolutionPass::resolve_file_scope_variable_declaration(AST::VariableDecl &decl) {
     decl.name = declare(Identifier(decl.name, true)).name;
 }
 
@@ -60,7 +59,8 @@ void VariableResolutionPass::resolve_declaration(AST::Declaration &decl) {
                            errors.emplace_back("Only top-level function definitions are allowed");
                        }
                        if (decl.storage_class == AST::StorageClass::STATIC) {
-                           errors.emplace_back("Function declarations with static specifier outside of file scope is disallowed");
+                           errors.emplace_back(
+                               "Function declarations with static specifier outside of file scope is disallowed");
                        }
                        resolve_function_declaration(decl);
                    }
@@ -136,30 +136,30 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                    [this](AST::FunctionCall &expr) {
                        resolve_function_call(expr);
                    },
-                    [this](AST::CastExpr& expr) {
-                        resolve_expression(*expr.expr);
-                    },
-                    [this](AST::DereferenceExpr &expr) {
-                        resolve_expression(*expr.expr);
-                    },
-                    [this](AST::AddressOfExpr& expr) {
-                        resolve_expression(*expr.expr);
-                    },
-                    [this](AST::SizeOfExpr& expr) {
-                        resolve_expression(*expr.expr);
-                    },
-                    [this](AST::TemporaryExpr& expr) {
-                        expr.identifier = declare(Identifier(expr.identifier, false)).name;
-                        if (expr.init) {
-                            resolve_expression(*expr.init);
-                        }
-                    },
-                    [this](AST::CompoundExpr& expr) {
-                        for (auto& ex : expr.exprs) {
-                            resolve_expression(*ex);
-                        }
-                    },
-                   [this](AST::SubscriptExpr& expr) {
+                   [this](AST::CastExpr &expr) {
+                       resolve_expression(*expr.expr);
+                   },
+                   [this](AST::DereferenceExpr &expr) {
+                       resolve_expression(*expr.expr);
+                   },
+                   [this](AST::AddressOfExpr &expr) {
+                       resolve_expression(*expr.expr);
+                   },
+                   [this](AST::SizeOfExpr &expr) {
+                       resolve_expression(*expr.expr);
+                   },
+                   [this](AST::TemporaryExpr &expr) {
+                       expr.identifier = declare(Identifier(expr.identifier, false)).name;
+                       if (expr.init) {
+                           resolve_expression(*expr.init);
+                       }
+                   },
+                   [this](AST::CompoundExpr &expr) {
+                       for (auto &ex: expr.exprs) {
+                           resolve_expression(*ex);
+                       }
+                   },
+                   [this](AST::SubscriptExpr &expr) {
                        resolve_expression(*expr.expr);
                        resolve_expression(*expr.index);
                    },
@@ -273,17 +273,17 @@ void VariableResolutionPass::resolve_function_declaration(AST::FunctionDecl &dec
     variables.pop_back();
 }
 
-void VariableResolutionPass::resolve_initializer(AST::Initializer& init) {
-    std::visit(overloaded {
-        [this](AST::ScalarInit& scalar) {
-            resolve_expression(*scalar.value);
-        },
-        [this](AST::CompoundInit& compound) {
-            for (auto& element : compound.init) {
-                resolve_initializer(*element);
-            }
-        }
-    }, init);
+void VariableResolutionPass::resolve_initializer(AST::Initializer &init) {
+    std::visit(overloaded{
+                   [this](AST::ScalarInit &scalar) {
+                       resolve_expression(*scalar.value);
+                   },
+                   [this](AST::CompoundInit &compound) {
+                       for (auto &element: compound.init) {
+                           resolve_initializer(*element);
+                       }
+                   }
+               }, init);
 }
 
 void VariableResolutionPass::resolve_variable_decl(AST::VariableDecl &decl) {

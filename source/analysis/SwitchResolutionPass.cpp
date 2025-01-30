@@ -70,40 +70,40 @@ void SwitchResolutionPass::run() {
     resolve_program(*program);
 }
 
-static void convert_const(AST::Const& constant, AST::TypeHandle& type) {
-    std::visit(overloaded {
-        [&constant](const AST::IntType&) {
-            std::visit(overloaded {
-                [&constant](const auto& c) {
-                    constant = AST::ConstInt(c.value);
-                }
-            }, constant);
-        },
-        [&constant](const AST::UIntType&) {
-            std::visit(overloaded {
-                [&constant](const auto& c) {
-                    constant = AST::ConstUInt(c.value);
-                }
-            }, constant);
-        },
-        [&constant](const AST::LongType&) {
-            std::visit(overloaded {
-                [&constant](const auto& c) {
-                    constant = AST::ConstLong(c.value);
-                }
-            }, constant);
-        },
-        [&constant](const AST::ULongType&) {
-            std::visit(overloaded {
-                [&constant](const auto& c) {
-                    constant = AST::ConstULong(c.value);
-                }
-            }, constant);
-        },
-        [](const auto&) {
-            std::unreachable();
-        }
-    }, *type);
+static void convert_const(AST::Const &constant, AST::TypeHandle &type) {
+    std::visit(overloaded{
+                   [&constant](const AST::IntType &) {
+                       std::visit(overloaded{
+                                      [&constant](const auto &c) {
+                                          constant = AST::ConstInt(c.value);
+                                      }
+                                  }, constant);
+                   },
+                   [&constant](const AST::UIntType &) {
+                       std::visit(overloaded{
+                                      [&constant](const auto &c) {
+                                          constant = AST::ConstUInt(c.value);
+                                      }
+                                  }, constant);
+                   },
+                   [&constant](const AST::LongType &) {
+                       std::visit(overloaded{
+                                      [&constant](const auto &c) {
+                                          constant = AST::ConstLong(c.value);
+                                      }
+                                  }, constant);
+                   },
+                   [&constant](const AST::ULongType &) {
+                       std::visit(overloaded{
+                                      [&constant](const auto &c) {
+                                          constant = AST::ConstULong(c.value);
+                                      }
+                                  }, constant);
+                   },
+                   [](const auto &) {
+                       std::unreachable();
+                   }
+               }, *type);
 }
 
 void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {
@@ -117,7 +117,7 @@ void SwitchResolutionPass::case_stmt(AST::CaseStmt &stmt) {
     }
     auto &current_switch = *switches.back();
     auto expr_type = get_type(*current_switch.expr);
-    auto& value = std::get<AST::ConstantExpr>(*stmt.value).constant;
+    auto &value = std::get<AST::ConstantExpr>(*stmt.value).constant;
     convert_const(value, expr_type);
     if (current_switch.cases.contains(value)) {
         errors.emplace_back("Duplicate case in switch");

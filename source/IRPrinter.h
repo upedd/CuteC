@@ -16,7 +16,7 @@ public:
                 ", initial_value=" << ")\n";
     }
 
-    void print_static_constant(const IR::StaticConstant & item) {
+    void print_static_constant(const IR::StaticConstant &item) {
         std::cout << "StaticConstant[" << item.name << "]\n"; // TODO
     }
 
@@ -29,9 +29,9 @@ public:
                            [this](const IR::StaticVariable &item) {
                                print_static_variable(item);
                            },
-                            [this](const IR::StaticConstant& item) {
-                                print_static_constant(item);
-                            }
+                           [this](const IR::StaticConstant &item) {
+                               print_static_constant(item);
+                           }
                        }, item);
         }
     }
@@ -142,7 +142,7 @@ public:
         std::cout << ")\n";
     }
 
-    void print_add_ptr(const IR::AddPtr & ins) {
+    void print_add_ptr(const IR::AddPtr &ins) {
         print_indent();
         print_value(ins.destination);
         std::cout << " = ";
@@ -152,7 +152,7 @@ public:
         std::cout << " * " << ins.scale << "\n";
     }
 
-    void print_copy_to_offset(const IR::CopyToOffset & ins) {
+    void print_copy_to_offset(const IR::CopyToOffset &ins) {
         print_indent();
         std::cout << ins.destination << "+" << ins.offset << " = ";
         print_value(ins.source);
@@ -218,10 +218,10 @@ public:
                        [this](const IR::Store &ins) {
                            print_store(ins);
                        },
-                       [this](const IR::AddPtr& ins) {
+                       [this](const IR::AddPtr &ins) {
                            print_add_ptr(ins);
                        },
-                       [this](const IR::CopyToOffset& ins) {
+                       [this](const IR::CopyToOffset &ins) {
                            print_copy_to_offset(ins);
                        }
 
