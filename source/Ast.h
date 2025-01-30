@@ -19,7 +19,7 @@ namespace AST {
         struct GoToStmt, struct CompoundStmt, struct BreakStmt, struct ContinueStmt, struct WhileStmt, struct
         DoWhileStmt, struct ForStmt, struct SwitchStmt, struct CaseStmt, struct DefaultStmt>;
     using Expr = std::variant<struct ConstantExpr, struct UnaryExpr, struct BinaryExpr, struct VariableExpr, struct
-        AssigmentExpr, struct ConditionalExpr, struct FunctionCall, struct CastExpr, struct DereferenceExpr, struct AddressOfExpr, struct CompoundExpr, struct TemporaryExpr, struct SubscriptExpr, struct StringExpr>;
+        AssigmentExpr, struct ConditionalExpr, struct FunctionCall, struct CastExpr, struct DereferenceExpr, struct AddressOfExpr, struct CompoundExpr, struct TemporaryExpr, struct SubscriptExpr, struct StringExpr, struct SizeOfExpr, struct SizeOfTypeExpr>;
     using ExprHandle = std::unique_ptr<Expr>;
     using StmtHandle = std::unique_ptr<Stmt>;
 
@@ -50,7 +50,7 @@ namespace AST {
         EXTERN
     };
 
-    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct DoubleType, struct FunctionType, struct PointerType, struct ArrayType, struct CharType, struct UCharType, struct SignedCharType>;
+    using Type = std::variant<struct EmptyType, struct IntType, struct LongType, struct UIntType, struct ULongType, struct DoubleType, struct FunctionType, struct PointerType, struct ArrayType, struct CharType, struct UCharType, struct SignedCharType, struct VoidType>;
     using TypeHandle = box<Type>;
 
     using Initializer = std::variant<struct ScalarInit, struct CompoundInit>;
@@ -97,6 +97,7 @@ namespace AST {
     struct CharType {};
     struct UCharType {};
     struct SignedCharType {};
+    struct VoidType {};
     struct FunctionType {
         std::vector<TypeHandle> parameters_types;
         TypeHandle return_type;
@@ -371,6 +372,16 @@ namespace AST {
 
     struct StringExpr {
         std::string string;
+        TypeHandle type;
+    };
+
+    struct SizeOfExpr {
+        ExprHandle expr;
+        TypeHandle type;
+    };
+
+    struct SizeOfTypeExpr {
+        TypeHandle referenced;
         TypeHandle type;
     };
 }

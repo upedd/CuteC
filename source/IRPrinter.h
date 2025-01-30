@@ -49,7 +49,10 @@ public:
 
     void print_call(const IR::Call &ins) {
         print_indent();
-        print_value(ins.destination);
+        // mess!
+        if (ins.destination) {
+            print_value(*ins.destination);
+        }
         std::cout << " = " << ins.name << " (";
         for (const auto &arg: ins.arguments) {
             print_value(arg);
@@ -246,7 +249,9 @@ public:
 
     void print_return(const IR::Return &ins) {
         std::cout << "   return ";
-        print_value(ins.value);
+        if (ins.value) {
+            print_value(*ins.value);
+        }
         std::cout << '\n';
     }
 

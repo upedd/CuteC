@@ -70,7 +70,9 @@ void VariableResolutionPass::resolve_declaration(AST::Declaration &decl) {
 void VariableResolutionPass::resolve_statement(AST::Stmt &stmt) {
     std::visit(overloaded{
                    [this](AST::ReturnStmt &stmt) {
-                       resolve_expression(*stmt.expr);
+                       if (stmt.expr) {
+                           resolve_expression(*stmt.expr);
+                       }
                    },
                    [this](AST::ExprStmt &stmt) {
                        resolve_expression(*stmt.expr);
@@ -141,6 +143,9 @@ void VariableResolutionPass::resolve_expression(AST::Expr &expr) {
                         resolve_expression(*expr.expr);
                     },
                     [this](AST::AddressOfExpr& expr) {
+                        resolve_expression(*expr.expr);
+                    },
+                    [this](AST::SizeOfExpr& expr) {
                         resolve_expression(*expr.expr);
                     },
                     [this](AST::TemporaryExpr& expr) {

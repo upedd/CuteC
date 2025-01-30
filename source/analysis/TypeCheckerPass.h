@@ -86,39 +86,39 @@ inline AST::TypeHandle get_type(const AST::Expr &expr) {
     }, expr);
 }
 
-inline int bytes_for_type(const AST::Type& type) {
+inline std::uint64_t bytes_for_type(const AST::Type& type) {
     return std::visit(overloaded {
-        [](const AST::IntType&) {
+        [](const AST::IntType&)-> std::uint64_t {
             return 4;
         },
-        [](const AST::UIntType&) {
+        [](const AST::UIntType&)-> std::uint64_t  {
             return 4;
         },
-        [](const AST::LongType&) {
+        [](const AST::LongType&)-> std::uint64_t  {
             return 8;
         },
-        [](const AST::ULongType&) {
+        [](const AST::ULongType&)-> std::uint64_t  {
             return 8;
         },
-        [](const AST::PointerType&) {
+        [](const AST::PointerType&)-> std::uint64_t  {
             return 8;
         },
-        [](const AST::DoubleType&) {
+        [](const AST::DoubleType&)-> std::uint64_t  {
             return 8;
         },
-        [](const AST::CharType&) {
+        [](const AST::CharType&)-> std::uint64_t  {
             return 1;
         },
-        [](const AST::UCharType&) {
+        [](const AST::UCharType&)-> std::uint64_t  {
             return 1;
         },
-        [](const AST::SignedCharType&) {
+        [](const AST::SignedCharType&)-> std::uint64_t  {
             return 1;
         },
-        [](const AST::ArrayType& array) -> int {
+        [](const AST::ArrayType& array) -> std::uint64_t {
             return bytes_for_type(*array.element_type) * array.size;
         },
-        [](const auto&) -> int {
+        [](const auto&) -> std::uint64_t  {
             std::unreachable();
         }
     }, type);
@@ -242,6 +242,8 @@ public:
     AST::InitializerHandle zero_initializer(const AST::Type &type);
 
     void check_string(AST::StringExpr & expr);
+
+    void check_type(const AST::Type &type);
 
     std::vector<Error> errors;
 

@@ -8,7 +8,7 @@
 #include "analysis/TypeCheckerPass.h"
 
 static bool is_type_specifier(Token::Type type) {
-    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED || type == Token::Type::DOUBLE || type == Token::Type::CHAR;
+    return type == Token::Type::INT || type == Token::Type::LONG || type == Token::Type::UNSIGNED || type == Token::Type::SIGNED || type == Token::Type::DOUBLE || type == Token::Type::CHAR || type == Token::Type::VOID;
 }
 
 static bool is_specifier(Token::Type type) {
@@ -26,7 +26,12 @@ AST::Type Parser::parse_type(const std::vector<Token::Type>& types) {
     if (types == std::vector {Token::Type::DOUBLE}) {
         return AST::DoubleType {};
     }
-
+    if (std::find(types.begin(), types.end(), Token::Type::VOID) != types.end()) {
+        if (types.size() > 1) {
+            errors.emplace_back("Invalid type specifier");
+        }
+        return AST::VoidType {};
+    }
     // mess!
     if (std::find(types.begin(), types.end(), Token::Type::CHAR) != types.end()) {
         if (std::find(types.begin(), types.end(), Token::Type::UNSIGNED) != types.end()) {
@@ -133,8 +138,9 @@ AST::DeclaratorHandle Parser::simple_declarator() {
 
 // TODO: use elsewhere!
 std::vector<AST::Param> Parser::parse_param_list() {
-    if (match(Token::Type::VOID)) {
-        expect(Token::Type::RIGHT_PAREN);
+    if (peek().type == Token::Type::VOID && peek(1).type == Token::Type::RIGHT_PAREN) {
+        consume(); // void
+        consume(); // right paren
         return {};
     }
     std::vector<AST::Param> params;
@@ -396,7 +402,10 @@ AST::StmtHandle Parser::statement() {
         return if_stmt();
     }
     if (match(Token::Type::RETURN)) {
-        auto expr = expression();
+        AST::ExprHandle expr;
+        if (peek().type != Token::Type::SEMICOLON) {
+            expr = expression();
+        }
         expect(Token::Type::SEMICOLON);
         return std::make_unique<AST::Stmt>(AST::ReturnStmt(std::move(expr)));
     }
@@ -508,7 +517,7 @@ static Parser::Precedence get_precedence(Token::Type type) {
 
 
 AST::ExprHandle Parser::expression(Precedence min_precedence) {
-    auto left = factor();
+    auto left = unary();
     auto token = peek();
     while (is_binary_operator(token.type) && get_precedence(token.type) >= min_precedence) {
         if (get_precedence(token.type) == Precedence::ASSIGMENT) {
@@ -684,7 +693,7 @@ AST::ExprHandle Parser::constant(const Token& token) {
     } else if (token.type == Token::Type::UNSIGNED_INT_CONSTANT) {
         try {
             std::uint64_t val = std::stoull(token.lexeme);
-            if (val < std::numeric_limits<std::uint32_t>::max()) {
+            if (val <= std::numeric_limits<std::uint32_t>::max()) {
                 return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstUInt(val)));
             }
             return std::make_unique<AST::Expr>(AST::ConstantExpr(AST::ConstULong(val)));
@@ -798,20 +807,8 @@ AST::ExprHandle Parser::primary(const Token &token) {
         }
         return std::make_unique<AST::Expr>(AST::StringExpr(string));
     }
-    // TODO: correct?
+
     if (token.type == Token::Type::LEFT_PAREN) {
-        if (is_type_specifier(peek().type)) {
-            std::vector<Token::Type> types;
-            while(is_type_specifier(peek().type)) {
-                types.emplace_back(consume().type);
-            }
-            auto base_type = parse_type(types);
-            auto declarator = parse_abstract_declarator();
-            auto type = process_abstract_declarator(*declarator, base_type);
-            expect(Token::Type::RIGHT_PAREN);
-            auto expr = factor();
-            return std::make_unique<AST::Expr>(AST::CastExpr(type, std::move(expr)));
-        }
         auto expr = expression();
         expect(Token::Type::RIGHT_PAREN);
         return expr;
@@ -831,10 +828,81 @@ std::vector<AST::ExprHandle> Parser::arguments_list() {
     return arguments;
 }
 
-
-AST::ExprHandle Parser::factor() {
+AST::ExprHandle Parser::unary() {
     Token token = consume();
+    // TODO: correct?
+    if (token.type == Token::Type::LEFT_PAREN && is_type_specifier(peek().type)) {
+
+            std::vector<Token::Type> types;
+            while(is_type_specifier(peek().type)) {
+                types.emplace_back(consume().type);
+            }
+            auto base_type = parse_type(types);
+            auto declarator = parse_abstract_declarator();
+            auto type = process_abstract_declarator(*declarator, base_type);
+            expect(Token::Type::RIGHT_PAREN);
+            auto expr = unary();
+            return std::make_unique<AST::Expr>(AST::CastExpr(type, std::move(expr)));
+    }
+    return factor(token);
+}
+
+AST::ExprHandle Parser::factor(const Token& token) {
     // TODO: refactor!
+
+    if (token.type == Token::Type::MINUS) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::NEGATE, std::move(expr)));
+    }
+    if (token.type == Token::Type::TILDE) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::COMPLEMENT, std::move(expr)));
+    }
+    if (token.type == Token::Type::BANG) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::LOGICAL_NOT, std::move(expr)));
+    }
+
+    if (token.type == Token::Type::ASTERISK) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::DereferenceExpr(std::move(expr)));
+    }
+
+    if (token.type == Token::Type::AND) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(expr)));
+    }
+
+    if (token.type == Token::Type::PLUS_PLUS) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_INCREMENT, std::move(expr)));
+    }
+    if (token.type == Token::Type::MINUS_MINUS) {
+        auto expr = unary();
+        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_DECREMENT, std::move(expr)));
+    }
+
+
+
+    if (token.type == Token::Type::SIZEOF) {
+        if (peek().type == Token::Type::LEFT_PAREN && is_type_specifier(peek(1).type)) {
+            consume();
+            // duplicate from cast!
+            std::vector<Token::Type> types;
+            while(is_type_specifier(peek().type)) {
+                types.emplace_back(consume().type);
+            }
+            auto base_type = parse_type(types);
+            auto declarator = parse_abstract_declarator();
+            auto type = process_abstract_declarator(*declarator, base_type);
+            expect(Token::Type::RIGHT_PAREN);
+            return std::make_unique<AST::Expr>(AST::SizeOfTypeExpr(type));
+        }
+        auto t = consume();
+        auto expr = factor(t);
+        return std::make_unique<AST::Expr>(AST::SizeOfExpr(std::move(expr)));
+    }
+
     auto primary_expr = primary(token);
     if (primary_expr) {
         if (match(Token::Type::PLUS_PLUS)) {
@@ -864,37 +932,7 @@ AST::ExprHandle Parser::factor() {
         return primary_expr;
     }
 
-    if (token.type == Token::Type::MINUS) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::NEGATE, std::move(expr)));
-    }
-    if (token.type == Token::Type::TILDE) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::COMPLEMENT, std::move(expr)));
-    }
-    if (token.type == Token::Type::BANG) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::LOGICAL_NOT, std::move(expr)));
-    }
 
-    if (token.type == Token::Type::ASTERISK) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::DereferenceExpr(std::move(expr)));
-    }
-
-    if (token.type == Token::Type::AND) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::AddressOfExpr(std::move(expr)));
-    }
-
-    if (token.type == Token::Type::PLUS_PLUS) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_INCREMENT, std::move(expr)));
-    }
-    if (token.type == Token::Type::MINUS_MINUS) {
-        auto expr = factor();
-        return std::make_unique<AST::Expr>(AST::UnaryExpr(AST::UnaryExpr::Kind::PREFIX_DECREMENT, std::move(expr)));
-    }
 
     errors.emplace_back(std::format("Expected an expression at {}:{}", token.position.line, token.position.offset));
 

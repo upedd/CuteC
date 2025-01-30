@@ -85,7 +85,8 @@ public:
         RIGHT_BRACKET,
         CHAR,
         CHAR_CONSTANT,
-        STRING_LITERAL
+        STRING_LITERAL,
+        SIZEOF
     };
 
     static std::string type_to_string(Type type) {
@@ -236,6 +237,8 @@ public:
                 return "ForwardSlash";
             case Type::PERCENT:
                 return "Percent";
+            case Type::SIZEOF:
+                return "SizeOf";
         }
     }
 

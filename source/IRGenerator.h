@@ -359,7 +359,11 @@ public:
 
     std::vector<IR::Instruction> gen_return(const AST::ReturnStmt &stmt) {
         std::vector<IR::Instruction> instructions;
-        instructions.emplace_back(IR::Return(gen_expr_and_convert(*stmt.expr, instructions)));
+        if (stmt.expr) {
+            instructions.emplace_back(IR::Return(gen_expr_and_convert(*stmt.expr, instructions)));
+        } else {
+            instructions.emplace_back(IR::Return({}));
+        }
         return instructions;
     }
 
@@ -368,8 +372,17 @@ public:
         auto end_label = make_label("end");
 
         auto condition = gen_expr_and_convert(*expr.condition, instructions);
-        auto result = make_variable(expr.type);
         instructions.emplace_back(IR::JumpIfZero(condition, else_label));
+
+        if (std::holds_alternative<AST::VoidType>(*expr.type)) {
+            auto then_result = gen_expr_and_convert(*expr.then_expr, instructions);
+            instructions.emplace_back(IR::Jump(end_label));
+            instructions.emplace_back(IR::Label(else_label));
+            auto else_result = gen_expr_and_convert(*expr.else_expr, instructions);
+            instructions.emplace_back(IR::Label(end_label));
+            return PlainOperand(IR::Variable("DUMMY")); // mess?
+         }
+        auto result = make_variable(expr.type);
         auto then_result = gen_expr_and_convert(*expr.then_expr, instructions);
         instructions.emplace_back(IR::Copy(then_result, result));
         instructions.emplace_back(IR::Jump(end_label));
@@ -385,6 +398,10 @@ public:
         for (const auto &arg: expr.arguments) {
             arguments.emplace_back(gen_expr_and_convert(*arg, instructions));
         }
+        if (std::holds_alternative<AST::VoidType>(*expr.type)) {
+            instructions.emplace_back(IR::Call(expr.identifier, std::move(arguments), {}));
+            return PlainOperand(IR::Variable("DUMMY")); // mess?
+        }
         auto result = make_variable(expr.type);
         instructions.emplace_back(IR::Call(expr.identifier, std::move(arguments), result));
         return PlainOperand(result);
@@ -392,6 +409,10 @@ public:
 
     ExprResult gen_cast_expr(const AST::CastExpr & expr, std::vector<IR::Instruction> & instructions) {
         auto res = gen_expr_and_convert(*expr.expr, instructions);
+        if (std::holds_alternative<AST::VoidType>(*expr.target)) {
+            return PlainOperand(IR::Variable("DUMMY")); // mess?
+        }
+
         if (get_type(*expr.expr)->index() == expr.target->index()) {
             return PlainOperand(res);
         }
@@ -512,6 +533,14 @@ public:
         return PlainOperand(IR::Variable(identifier));
     }
 
+    ExprResult gen_sizeof_type_expr(const AST::SizeOfTypeExpr & expr,  std::vector<IR::Instruction> & instructions) {
+        return PlainOperand(IR::Constant(AST::ConstULong(bytes_for_type(*expr.referenced))));
+    }
+
+    ExprResult get_sizeof_expr(const AST::SizeOfExpr & expr, std::vector<IR::Instruction> & instructions) {
+        return PlainOperand(IR::Constant(AST::ConstULong(bytes_for_type(*get_type(*expr.expr)))));
+    }
+
     ExprResult gen_expr(const AST::Expr &expr, std::vector<IR::Instruction> &instructions) {
         return std::visit(overloaded{
                               [this](const AST::ConstantExpr &expr) {
@@ -550,6 +579,12 @@ public:
                                 [this, &instructions](const AST::StringExpr& expr) {
                                   return gen_string_expr(expr, instructions);
                               },
+                                [this, &instructions](const AST::SizeOfTypeExpr& expr) {
+                                    return gen_sizeof_type_expr(expr, instructions);
+                                },
+                                [this, &instructions](const AST::SizeOfExpr& expr) {
+                                    return get_sizeof_expr(expr, instructions);
+                                },
                               [this, &instructions](const AST::CompoundExpr& expr) {
                                   return gen_compound_expr(expr, instructions);
                               },

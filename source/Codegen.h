@@ -426,12 +426,14 @@ namespace codegen {
                                                       ASM::Imm(bytes_to_remove), ASM::Reg(ASM::Reg::Name::SP)));
             }
 
-            if (std::holds_alternative<ASM::Double>(get_type_for_value(call.destination))) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::XMM0),
-                                                   convert_value(call.destination)));
-            } else {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(call.destination), ASM::Reg(ASM::Reg::Name::AX),
-                                                   convert_value(call.destination)));
+            if (call.destination) {
+                if (std::holds_alternative<ASM::Double>(get_type_for_value(*call.destination))) {
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(*call.destination), ASM::Reg(ASM::Reg::Name::XMM0),
+                                                       convert_value(*call.destination)));
+                } else {
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(*call.destination), ASM::Reg(ASM::Reg::Name::AX),
+                                                       convert_value(*call.destination)));
+                }
             }
         }
 
@@ -701,12 +703,14 @@ namespace codegen {
         }
 
         void convert_return(const IR::Return &instruction, std::vector<ASM::Instruction> &instructions) {
-            if (std::holds_alternative<ASM::Double>(get_type_for_value(instruction.value))) {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value),
-                                                   convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::XMM0)));
-            } else {
-                instructions.emplace_back(ASM::Mov(get_type_for_value(instruction.value),
-                                                   convert_value(instruction.value), ASM::Reg(ASM::Reg::Name::AX)));
+            if (instruction.value) {
+                if (std::holds_alternative<ASM::Double>(get_type_for_value(*instruction.value))) {
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(*instruction.value),
+                                                       convert_value(*instruction.value), ASM::Reg(ASM::Reg::Name::XMM0)));
+                } else {
+                    instructions.emplace_back(ASM::Mov(get_type_for_value(*instruction.value),
+                                                       convert_value(*instruction.value), ASM::Reg(ASM::Reg::Name::AX)));
+                }
             }
             instructions.emplace_back(ASM::Ret());
         }

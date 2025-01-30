@@ -294,7 +294,9 @@ public:
     void return_stmt(const ReturnStmt &stmt) {
         println("Return(");
         with_indent([this, &stmt] {
-            visit_expr(*stmt.expr);
+            if (stmt.expr) {
+                visit_expr(*stmt.expr);
+            }
         });
         println(")");
     }
@@ -404,6 +406,25 @@ public:
         println(")");
     }
 
+    void sizeof_expr(const AST::SizeOfExpr & expr) {
+        println("SizeOfExpr(");
+        with_indent([this, &expr] {
+            println("expr=");
+            with_indent([this, &expr] {
+                visit_expr(*expr.expr);
+            });
+        });
+        println(")");
+    }
+
+    void sizeof_type_expr(const AST::SizeOfTypeExpr & expr) {
+        println("SizeOfTypeExpr(");
+        with_indent([this, &expr] {
+            println("type=");
+        });
+        println(")");
+    }
+
     void visit_expr(const Expr &expr) {
         std::visit(overloaded{
                        [this](const ConstantExpr &expr) {
@@ -439,6 +460,12 @@ public:
                             [this](const StringExpr& expr) {
                                 string_expr(expr);
                             },
+                        [this](const SizeOfExpr& expr) {
+                            sizeof_expr(expr);
+                        },
+                        [this](const SizeOfTypeExpr& expr) {
+                          sizeof_type_expr(expr);
+                        },
                         [this](const TemporaryExpr& expr) {
                             temporary_expr(expr);
                         },

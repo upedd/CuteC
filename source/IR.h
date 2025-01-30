@@ -45,7 +45,7 @@ namespace IR {
     };
 
     struct Return {
-        Value value;
+        std::optional<Value> value;
     };
 
     struct Unary {
@@ -118,7 +118,7 @@ namespace IR {
     struct Call {
         std::string name;
         std::vector<Value> arguments;
-        Value destination;
+        std::optional<Value> destination;
     };
 
     struct SignExtend {

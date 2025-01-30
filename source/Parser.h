@@ -100,7 +100,9 @@ public:
 
     std::vector<AST::ExprHandle> arguments_list();
 
-    AST::ExprHandle factor();
+    AST::ExprHandle unary();
+
+    AST::ExprHandle factor(const Token &token);
 
     AST::Program program{};
     std::vector<Error> errors{};

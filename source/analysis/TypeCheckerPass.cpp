@@ -235,8 +235,12 @@ void TypeCheckerPass::convert_compound_to_initial(Initial &initial, const AST::T
 }
 
 void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl &decl) {
-    InitialValue initial_value;
+    check_type(*decl.type);
+    if (std::holds_alternative<AST::VoidType>(*decl.type)) {
+        errors.emplace_back("Declaring a variable with a void type is disallowed");
+    }
 
+    InitialValue initial_value;
     if (decl.init) {
         if (std::holds_alternative<AST::ScalarInit>(*decl.init)) {
             initial_value = convert_scalar_to_initial(*decl.type, std::get<AST::ScalarInit>(*decl.init));
@@ -284,6 +288,10 @@ void TypeCheckerPass::file_scope_variable_declaration(AST::VariableDecl &decl) {
 }
 
 void TypeCheckerPass::local_variable_declaration(AST::VariableDecl &decl) {
+    check_type(*decl.type);
+    if (std::holds_alternative<AST::VoidType>(*decl.type)) {
+        errors.emplace_back("Declaring a variable with a void type is disallowed");
+    }
     if (decl.storage_class == AST::StorageClass::EXTERN) {
         if (decl.init) {
             errors.emplace_back("Initializer on local extern variable declaration");
@@ -373,7 +381,30 @@ AST::InitializerHandle TypeCheckerPass::zero_initializer(const AST::Type &type) 
 void TypeCheckerPass::check_string(AST::StringExpr &expr) {
     expr.type = {AST::ArrayType {{AST::CharType()}, expr.string.size() + 1}};
 }
+bool is_complete(const AST::Type &type) {
+    return !std::holds_alternative<AST::VoidType>(type);
+}
 
+void TypeCheckerPass::check_type(const AST::Type &type) {
+    return std::visit(overloaded{
+        [this](const AST::ArrayType &array) {
+            if (!is_complete(*array.element_type)) {
+                errors.emplace_back("Array type must be complete");
+            }
+            check_type(*array.element_type);
+        },
+        [this](const AST::PointerType &pointer) {
+            check_type(*pointer.referenced_type);
+        },
+        [this](const AST::FunctionType &function) {
+            for (const auto& param : function.parameters_types) {
+                check_type(*param);
+            }
+            check_type(*function.return_type);
+        },
+        [](const auto&) {}
+        }, type);
+}
 
 void TypeCheckerPass::check_init(const AST::TypeHandle &target_type, AST::Initializer &init) {
     std::visit(overloaded{
@@ -416,12 +447,16 @@ void TypeCheckerPass::check_init(const AST::TypeHandle &target_type, AST::Initia
 void TypeCheckerPass::check_function_decl(AST::FunctionDecl &function) {
 
     auto &fun_type = std::get<AST::FunctionType>(*function.type);
+    check_type(fun_type);
     if (std::holds_alternative<AST::ArrayType>(*fun_type.return_type)) {
         errors.emplace_back("Function cannot return an array");
     }
     for (auto &param: fun_type.parameters_types) {
         if (std::holds_alternative<AST::ArrayType>(*param)) {
             *param = AST::PointerType(std::get<AST::ArrayType>(*param).element_type);
+        }
+        if (std::holds_alternative<AST::VoidType>(*param)) {
+            errors.emplace_back("Declaring a function parameter with a void type is disallowed");
         }
     }
 
@@ -533,6 +568,20 @@ void TypeCheckerPass::check_expr(AST::Expr &expr) {
                    [this](AST::StringExpr& expr) {
                        check_string(expr);
                    },
+                   [this](AST::SizeOfExpr& expr) {
+                       check_expr(*expr.expr);
+                       if (!is_complete(*get_type(*expr.expr))) {
+                           errors.emplace_back("Cannot take a size of an incomplete type");
+                       }
+                       expr.type = {AST::ULongType()};
+                   },
+                    [this](AST::SizeOfTypeExpr& expr) {
+                        check_type(*expr.referenced);
+                        if (!is_complete(*expr.referenced)) {
+                            errors.emplace_back("Cannot take a size of an incomplete type");
+                        }
+                        expr.type = {AST::ULongType()};
+                    },
                    [this](AST::TemporaryExpr &expr) {
                        if (expr.init) {
                            check_expr_and_convert(expr.init);
@@ -574,13 +623,38 @@ void TypeCheckerPass::check_variable_expr(AST::VariableExpr &expr) {
     expr.type = *symbol_type;
 }
 
+bool is_scalar(const AST::Type &type) {
+    return std::visit(overloaded {
+        [](const AST::VoidType&) {
+            return false;
+        },
+        [](const AST::FunctionType&) {
+            return false;
+        },
+        [](const AST::ArrayType&) {
+            return false;
+        },
+        [](const auto&) {
+            return true;
+        }
+    }, type);
+}
+
 void TypeCheckerPass::check_stmt(AST::Stmt &item) {
     std::visit(overloaded{
                    [this](AST::ReturnStmt &stmt) {
-                       if (stmt.expr) {
-                           check_expr_and_convert(stmt.expr);
-                           convert_by_assigment(stmt.expr, current_function_return_type.back());
-                       }
+                        if (std::holds_alternative<AST::VoidType>(*current_function_return_type.back())) {
+                            if (stmt.expr) {
+                                errors.emplace_back("Return statement with a value inside a void function");
+                            }
+                        } else {
+                            if (!stmt.expr) {
+                                errors.emplace_back("Return statement without a value inside a non-void function");
+                            } else {
+                                check_expr_and_convert(stmt.expr);
+                                convert_by_assigment(stmt.expr, current_function_return_type.back());
+                            }
+                        }
                    },
                    [this](AST::ExprStmt &stmt) {
                        check_expr_and_convert(stmt.expr);
@@ -589,6 +663,9 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                    },
                    [this](AST::IfStmt &stmt) {
                        check_expr_and_convert(stmt.condition);
+                       if (!is_scalar(*get_type(*stmt.condition))) {
+                           errors.emplace_back("Logical operators only apply to scalar expressions");
+                       }
                        check_stmt(*stmt.then_stmt);
                        if (stmt.else_stmt) {
                            check_stmt(*stmt.else_stmt);
@@ -608,10 +685,16 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                    },
                    [this](AST::WhileStmt &stmt) {
                        check_expr_and_convert(stmt.condition);
+                       if (!is_scalar(*get_type(*stmt.condition))) {
+                           errors.emplace_back("Logical operators only apply to scalar expressions");
+                       }
                        check_stmt(*stmt.body);
                    },
                    [this](AST::DoWhileStmt &stmt) {
                        check_expr_and_convert(stmt.condition);
+                       if (!is_scalar(*get_type(*stmt.condition))) {
+                           errors.emplace_back("Logical operators only apply to scalar expressions");
+                       }
                        check_stmt(*stmt.body);
                    },
                    [this](AST::ForStmt &stmt) {
@@ -627,6 +710,9 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                                   }, stmt.init);
                        if (stmt.condition) {
                            check_expr_and_convert(stmt.condition);
+                           if (!is_scalar(*get_type(*stmt.condition))) {
+                            errors.emplace_back("Logical operators only apply to scalar expressions");
+                           }
                        }
                        if (stmt.post) {
                            check_expr_and_convert(stmt.post);
@@ -636,8 +722,7 @@ void TypeCheckerPass::check_stmt(AST::Stmt &item) {
                    [this](AST::SwitchStmt &stmt) {
                        check_expr_and_convert(stmt.expr);
                        check_stmt(*stmt.body);
-                       if (std::holds_alternative<AST::DoubleType>(*get_type(*stmt.expr)) || std::holds_alternative<
-                               AST::PointerType>(*get_type(*stmt.expr))) {
+                       if (!is_scalar(*get_type(*stmt.expr)) || std::holds_alternative<AST::DoubleType>(*get_type(*stmt.expr))) {
                            errors.emplace_back("Switch controlling value must be an integer");
                        }
                        // promote switch controlling value
@@ -692,11 +777,8 @@ bool is_lvalue(const AST::Expr &expr) {
 
 
 void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
+    check_type(*expr.target);
     check_expr_and_convert(expr.expr);
-    if (std::holds_alternative<AST::ArrayType>(*expr.target)) {
-        errors.emplace_back("Casting to array type is disallowed");
-    }
-
     if (std::holds_alternative<AST::PointerType>(*expr.target) && std::holds_alternative<AST::DoubleType>(
             *get_type(*expr.expr))) {
         errors.emplace_back("Casting double to pointer type is disallowed");
@@ -704,7 +786,27 @@ void TypeCheckerPass::check_cast_expr(AST::CastExpr &expr) {
                    *get_type(*expr.expr))) {
         errors.emplace_back("Casting pointer to double type is disallowed");
     }
+
+    if (!std::holds_alternative<AST::VoidType>(*expr.target)) {
+        if (!is_scalar(*expr.target)) {
+            errors.emplace_back("Can only cast to scalar type or void!");
+        }
+        if (!is_scalar(*get_type(*expr.expr))) {
+            errors.emplace_back("Cannot cast a non-scalar expression to scalar type");
+        }
+    }
+
+
     expr.type = expr.target;
+}
+
+
+
+bool is_pointer_to_complete(const AST::Type &type) {
+    if (!std::holds_alternative<AST::PointerType>(type)) {
+        return false;
+    }
+    return is_complete(*std::get<AST::PointerType>(type).referenced_type);
 }
 
 void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
@@ -731,6 +833,9 @@ void TypeCheckerPass::check_unary(AST::UnaryExpr &expr) {
         }
 
     if (expr.kind == AST::UnaryExpr::Kind::LOGICAL_NOT) {
+        if (!is_scalar(*get_type(*expr.expr))) {
+            errors.emplace_back("Logical operators only apply to scalar expressions");
+        }
         expr.type = AST::Type(AST::IntType());
     } else {
         expr.type = get_type(*expr.expr);
@@ -761,6 +866,10 @@ bool is_null_pointer_constant(const AST::Expr &expr) {
                       }, std::get<AST::ConstantExpr>(expr).constant);
 }
 
+bool is_void_pointer(const AST::Type &type) {
+    return std::holds_alternative<AST::PointerType>(type) && std::holds_alternative<AST::VoidType>(*std::get<AST::PointerType>(type).referenced_type);
+}
+
 AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle &lhs, const AST::ExprHandle &rhs) {
     auto lhs_type = get_type(*lhs);
     auto rhs_type = get_type(*rhs);
@@ -773,7 +882,12 @@ AST::TypeHandle TypeCheckerPass::get_common_pointer_type(const AST::ExprHandle &
     if (is_null_pointer_constant(*rhs)) {
         return lhs_type;
     }
-
+    if (is_void_pointer(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type)) {
+        return lhs_type;
+    }
+    if (is_void_pointer(*rhs_type) && std::holds_alternative<AST::PointerType>(*lhs_type)) {
+        return rhs_type;
+    }
     // TODO: handle more gracefully?
     errors.emplace_back("Incompatible types");
     return {};
@@ -806,12 +920,14 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
          AST::BinaryExpr::Kind::REMAINDER || expr.kind == AST::BinaryExpr::Kind::BITWISE_OR || expr.kind ==
          AST::BinaryExpr::Kind::BITWISE_AND || expr.kind == AST::BinaryExpr::Kind::BITWISE_XOR || expr.kind ==
          AST::BinaryExpr::Kind::SHIFT_LEFT || expr.kind == AST::BinaryExpr::Kind::SHIFT_RIGHT) && (
-            std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<
-                AST::PointerType>(*rhs_type))) {
+            !is_type_arithmetic(*lhs_type) || !is_type_arithmetic(*rhs_type))) {
         errors.emplace_back("invalid operand for operator"); // better errors?
     }
 
     if (expr.kind == AST::BinaryExpr::Kind::LOGICAL_AND || expr.kind == AST::BinaryExpr::Kind::LOGICAL_OR) {
+        if (!is_scalar(*lhs_type) || !is_scalar(*rhs_type)) {
+            errors.emplace_back("Logical operators only apply to scalar expressions");
+        }
         expr.type = AST::Type(AST::IntType());
         return;
     }
@@ -855,20 +971,20 @@ void TypeCheckerPass::check_binary(AST::BinaryExpr &expr) {
         return;
     }
 
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type) && (
+    if (is_pointer_to_complete(*lhs_type) && is_type_integer(*rhs_type) && (
             expr.kind == AST::BinaryExpr::Kind::ADD || expr.kind == AST::BinaryExpr::Kind::SUBTRACT)) {
         convert_to(expr.right, AST::Type(AST::LongType())); // ?
         expr.type = lhs_type;
         return;
     }
-    if (std::holds_alternative<AST::PointerType>(*rhs_type) && is_type_integer(*lhs_type) && expr.kind ==
+    if (is_pointer_to_complete(*rhs_type) && is_type_integer(*lhs_type) && expr.kind ==
         AST::BinaryExpr::Kind::ADD) {
         convert_to(expr.left, AST::Type(AST::LongType())); // ?
         expr.type = rhs_type;
         return;
     }
 
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type) &&
+    if (is_pointer_to_complete(*lhs_type) && is_pointer_to_complete(*rhs_type) &&
         expr.kind == AST::BinaryExpr::Kind::SUBTRACT && types_match(*lhs_type, *rhs_type)) {
         expr.type = AST::Type(AST::LongType());
         return;
@@ -899,6 +1015,16 @@ void TypeCheckerPass::convert_by_assigment(AST::ExprHandle &expr, AST::TypeHandl
         convert_to(expr, target);
         return;
     }
+
+    if (is_void_pointer(*target) && std::holds_alternative<AST::PointerType>(*expr_type)) {
+        convert_to(expr, target);
+        return;
+    }
+
+    if (std::holds_alternative<AST::PointerType>(*target) && is_void_pointer(*expr_type)) {
+        convert_to(expr, target);
+        return;
+    }
     errors.emplace_back("Cannot convert types for assigment");
 }
 
@@ -914,19 +1040,28 @@ void TypeCheckerPass::check_assigment(AST::AssigmentExpr &expr) {
 
 void TypeCheckerPass::check_conditional(AST::ConditionalExpr &expr) {
     check_expr_and_convert(expr.condition);
+    if (!is_scalar(*get_type(*expr.condition))) {
+        errors.emplace_back("Logical operators only apply to scalar expressions");
+    }
     check_expr_and_convert(expr.then_expr);
     check_expr_and_convert(expr.else_expr);
     auto lhs_type = get_type(*expr.then_expr);
     auto rhs_type = get_type(*expr.else_expr);
     AST::TypeHandle common_type;
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) {
-        common_type = get_common_pointer_type(expr.then_expr, expr.else_expr);
-    } else {
+    if (std::holds_alternative<AST::VoidType>(*lhs_type) && std::holds_alternative<AST::VoidType>(*rhs_type)) {
+        expr.type = lhs_type;
+    } else if (is_type_arithmetic(*lhs_type) && is_type_arithmetic(*rhs_type)) {
         common_type = get_common_type(lhs_type, rhs_type);
+        convert_to(expr.then_expr, common_type);
+        convert_to(expr.else_expr, common_type);
+        expr.type = common_type;
+    } else if (std::holds_alternative<AST::PointerType>(*lhs_type) || std::holds_alternative<AST::PointerType>(*rhs_type)) {
+        common_type = get_common_pointer_type(expr.then_expr, expr.else_expr);
+        expr.type = common_type;
+    } else {
+        errors.emplace_back("Cannot convert branches of a conditional expression to a common type");
     }
-    convert_to(expr.then_expr, common_type);
-    convert_to(expr.else_expr, common_type);
-    expr.type = common_type;
+
 }
 
 void TypeCheckerPass::check_dereference(AST::DereferenceExpr &expr) {
@@ -935,6 +1070,9 @@ void TypeCheckerPass::check_dereference(AST::DereferenceExpr &expr) {
         errors.emplace_back("Cannot dereference a non-pointer type");
     }
     expr.type = std::get<AST::PointerType>(*get_type(*expr.expr)).referenced_type;
+    if (std::holds_alternative<AST::VoidType>(*expr.type)) {
+        errors.emplace_back("Cannot dereference a pointer to void type");
+    }
 }
 
 
@@ -951,10 +1089,10 @@ void TypeCheckerPass::check_subscript(AST::SubscriptExpr &expr) {
     check_expr_and_convert(expr.index);
     auto lhs_type = get_type(*expr.expr);
     auto rhs_type = get_type(*expr.index);
-    if (std::holds_alternative<AST::PointerType>(*lhs_type) && is_type_integer(*rhs_type)) {
+    if (is_pointer_to_complete(*lhs_type) && is_type_integer(*rhs_type)) {
         expr.type = std::get<AST::PointerType>(*lhs_type).referenced_type;
         convert_to(expr.index, AST::Type(AST::LongType()));
-    } else if (is_type_integer(*lhs_type) && std::holds_alternative<AST::PointerType>(*rhs_type)) {
+    } else if (is_type_integer(*lhs_type) && is_pointer_to_complete(*rhs_type)) {
         expr.type = std::get<AST::PointerType>(*rhs_type).referenced_type;
         convert_to(expr.expr, AST::Type(AST::LongType()));
     } else {

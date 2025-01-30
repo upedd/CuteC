@@ -127,6 +127,8 @@ void Lexer::make_keyword_or_identifier() {
         make_token(Token::Type::DOUBLE);
     } else if (lexeme == "char") {
         make_token(Token::Type::CHAR);
+    } else if (lexeme == "sizeof") {
+        make_token(Token::Type::SIZEOF);
     } else {
         tokens.emplace_back(Token::Type::IDENTIFIER, Token::Position(m_line, m_linepos), lexeme);
     }
