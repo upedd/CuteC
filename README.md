@@ -3,7 +3,7 @@
 **CuteC** (pronounced *cutesy* 😊) is a toy C compiler developed as a learning project. The goal is to create a modern **C++23** implementation of an **optimizing C compiler** with support for multiple targets.
 
 <p align="center">
-  <img src="./assets/terminal.png" width="600">
+  <img src="https://github.com/upedd/CuteC/blob/main/assets/terminal.png?raw=true" width="600">
 </p>
 
 ## Features
